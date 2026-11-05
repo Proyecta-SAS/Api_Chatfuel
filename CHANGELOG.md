@@ -1,3 +1,10 @@
+# V1.0.9 - 2026-11-05
+
+- Ofrece y reserva nuevas llamadas de 30 minutos, respetando ocupación y horario de cierre.
+- Conserva horarios separados y exige confirmación nueva para opciones antiguas de 10 minutos.
+- Recupera reservas anteriores sin ampliar su duración ni duplicar eventos.
+- Alinea los mensajes de agenda y la configuración de conversación con la nueva duración.
+
 # V1.0.8 - 2026-11-05
 
 - Vincula la negociación usando TELÉFONO CLIENTE (DEF) cuando esté informado.

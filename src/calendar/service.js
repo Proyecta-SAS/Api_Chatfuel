@@ -5,6 +5,7 @@ import { bogotaToday, candidateDates, parseBitrixDate, weekdayForDate } from './
 import { calculateAdvisorDateSlots } from './appointmentAdvisorAvailability.js';
 import { requireBitrixEventId } from './appointmentBooking.js';
 import { confirmedCalendarOwner } from './confirmedEvent.js';
+import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
 
 export const APPOINTMENT_STAGE = 'C370:EXECUTING';
 const fail = code => { throw Object.assign(new Error(code), { code, retryable: false }); };
@@ -79,11 +80,11 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
   }
   async function availability(code, body) {
     if (!await store.getProfile(code)) fail('LEAD_NOT_FOUND');
-    const { dateFrom: from, dateTo: to, fromTime = '08:30', toTime = '17:00', durationMinutes = 10, quantity = 2 } = body;
+    const { dateFrom: from, dateTo: to, fromTime = '08:30', toTime = '17:00', durationMinutes = APPOINTMENT_DURATION_MINUTES, quantity = 2 } = body;
     const days = (Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000;
     if (!sqlDate(from) || !sqlDate(to) || days < 0 || days > 60 || from < dateOf(now())) fail('INVALID_PERIOD');
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fromTime) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(toTime)
-      || fromTime < '08:30' || toTime > '17:00' || fromTime >= toTime || durationMinutes !== 10
+      || fromTime < '08:30' || toTime > '17:00' || fromTime >= toTime || durationMinutes !== APPOINTMENT_DURATION_MINUTES
       || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) fail('INVALID_HOURS');
     const busy = await calendars(from, to);
     const excluded = new Set((Array.isArray(body.excludeStarts) ? body.excludeStarts : []).slice(0, 500).map(Date.parse));
@@ -161,7 +162,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     if (!/^[\w.:-]{1,128}$/.test(key || '')) fail('IDEMPOTENCY_KEY_REQUIRED');
     const start = Date.parse(body.startAt), duration = body.durationMinutes;
     const parsed = parseBitrixDate(body.startAt);
-    if (!Number.isFinite(start) || !parsed || duration !== 10) fail('INVALID_START');
+    if (!Number.isFinite(start) || !parsed || !Number.isInteger(duration) || duration <= 0) fail('INVALID_START');
     const requestedDeal = Object.hasOwn(body, 'bitrixDealId') ? String(body.bitrixDealId) : null;
     if (requestedDeal && (!validId(requestedDeal) || body.bitrixStageId !== APPOINTMENT_STAGE)
       || !requestedDeal && Object.hasOwn(body, 'bitrixStageId')) fail('INVALID_BITRIX_BINDING');
@@ -177,6 +178,9 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         if (previous.status === 'pending') return { ...await recoverPending(db, previous), duplicate: true };
         fail('BOOKING_CHECK_REQUIRED');
       }
+      // Existing reservations retain their exact stored interval; only new
+      // reservations must use the current duration.
+      if (duration !== APPOINTMENT_DURATION_MINUTES) fail('INVALID_START');
       if (body.resumeOnly) fail('LEGACY_BOOKING_REVIEW_REQUIRED');
       if (start <= now() || !sqlDate(parsed.date) || ['sabado','domingo'].includes(weekdayForDate(parsed.date))
         || parsed.minutes < 510 || parsed.minutes + duration > 1020) fail('INVALID_START');

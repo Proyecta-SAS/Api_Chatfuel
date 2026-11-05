@@ -38,7 +38,7 @@ sola el comportamiento del modelo.
    del primer saludo.
 4. Elegir franja, día y uno de los horarios consultados en Bitrix.
 5. Confirmar expresamente la reserva del horario elegido.
-6. Verificar el identificador del evento y la cita de diez minutos en Bitrix,
+6. Verificar el identificador del evento y la cita de treinta minutos en Bitrix,
    y que la misma negociación de Bitrix conserve el comentario del perfil nuevo.
 
 La disponibilidad consultada no significa que exista una reserva. No crear

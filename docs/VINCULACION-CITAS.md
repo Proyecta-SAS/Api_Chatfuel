@@ -1,5 +1,11 @@
 # Agenda propia y vinculación — V1.0.7
 
+Desde V1.0.9 las nuevas llamadas duran 30 minutos. La consulta de huecos,
+validación de solapamientos, creación de evento y confirmación usan esa duración.
+Una opción antigua aún sin reservar se vuelve a presentar con disponibilidad
+actual y necesita confirmación nueva. Una reserva existente conserva su intervalo
+original y se recupera con la misma clave sin crear otro evento.
+
 Desde V1.0.8, `/registrar-cliente` prioriza **TELÉFONO CLIENTE (DEF)**
 (`UF_CRM_1584616588730`) de la negociación. El teléfono del contacto vinculado
 solo se usa cuando ese campo está vacío. Un valor no vacío inválido se rechaza
