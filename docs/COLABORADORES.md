@@ -1,6 +1,6 @@
 # Publicar con la cuenta de cada colaborador
 
-El repositorio de destino es `JhonAlex37/Api_Chatfuel`. Cada colaborador con
+El repositorio de destino es `Proyecta-SAS/Api_Chatfuel`. Cada colaborador con
 permiso de escritura utiliza su propia cuenta de GitHub y firma sus commits
 con su identidad. El nombre del propietario del repositorio no cambia.
 

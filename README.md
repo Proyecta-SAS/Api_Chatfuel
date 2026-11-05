@@ -79,7 +79,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 
 ## Publicación
 
-GitHub: `JhonAlex37/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
+GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
 Después del push, `/health` debe indicar `version: "1.0.6"` y

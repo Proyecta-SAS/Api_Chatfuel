@@ -5,11 +5,16 @@
 - Proyecto: `Api Chatfuel`, ID `a8744968-739a-441f-ab07-eca9488a3830`.
 - Servicio: `Api_Chatfuel`, ID `b15812dd-8735-45f3-9e31-086c4862c50b`.
 - Entorno: `production`, ID `ac461721-7ee3-4600-9ed6-126a2d8b0d0a`.
-- Origen GitHub: `JhonAlex37/Api_Chatfuel`, rama `main`.
+- Origen GitHub de destino: `Proyecta-SAS/Api_Chatfuel`, rama `main`.
 - Dominio: https://apichatfuel-production.up.railway.app
 - Salud: https://apichatfuel-production.up.railway.app/health
 
 ## Construcción y despliegue
+
+El cambio de origen requiere subir primero la versión actual a `Proyecta-SAS/Api_Chatfuel`.
+Después, conectar ese repositorio y la rama `main` en el servicio existente y
+verificar el disparador automático. La configuración local de Git no cambia
+por sí sola el origen en Railway. Conservar el servicio, variables, dominio y MySQL.
 
 Railway detecta el Dockerfile de la raíz y ejecuta Node.js 24. El conector lee `PORT`
 y las variables descritas en README.md. Los webhooks y asesores son propios del servicio de API. MYSQL_URL conserva
