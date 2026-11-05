@@ -67,6 +67,32 @@ test('rechaza IDs inválidos antes de consultar Bitrix', async t => {
   assert.equal(rows.size, 0);
 });
 
+test('vincula el teléfono cliente DEF aunque el contacto tenga otro número', async t => {
+  const mock = bitrixMock({ 'crm.deal.get': { ID: '32135', CONTACT_ID: '81', UF_CRM_1584616588730: '573009990001' } });
+  const { request, rows } = await serve(t, { bitrix: mock.client });
+  assert.equal((await request('/registrar-cliente?id=32135')).status, 200);
+  assert.equal(rows.get('32135').telefono, '573009990001');
+  assert.equal(rows.get('32135').id_contacto, '81');
+});
+
+test('sin teléfono cliente DEF conserva el teléfono del contacto', async t => {
+  for (const value of ['', '  ', null, false]) {
+    const mock = bitrixMock({ 'crm.deal.get': { ID: '32135', CONTACT_ID: '81', UF_CRM_1584616588730: value } });
+    const { request, rows } = await serve(t, { bitrix: mock.client });
+    assert.equal((await request('/registrar-cliente?id=32135')).status, 200);
+    assert.equal(rows.get('32135').telefono, '+57 3001234567');
+  }
+});
+
+test('un teléfono cliente DEF inválido no vincula el número de otra persona', async t => {
+  const mock = bitrixMock({ 'crm.deal.get': { ID: '32135', CONTACT_ID: '81', UF_CRM_1584616588730: 'pendiente' } });
+  const { request, rows } = await serve(t, { bitrix: mock.client });
+  const response = await request('/registrar-cliente?id=32135');
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).error, 'TELEFONO_CLIENTE_INVALIDO');
+  assert.equal(rows.size, 0);
+});
+
 test('token opcional funciona por encabezado o query', async t => {
   const { request, calls } = await serve(t, { webhookToken: 'test-secret' });
   assert.equal((await request('/registrar-cliente?id=32135')).status, 401);

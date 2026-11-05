@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 
-export const RELEASE_VERSION = '1.0.7';
+export const RELEASE_VERSION = '1.0.8';
 
 const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',

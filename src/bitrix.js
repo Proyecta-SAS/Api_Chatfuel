@@ -1,4 +1,7 @@
 import { AppError } from './errors.js';
+import { phoneVariants } from './phone.js';
+
+export const CLIENT_PHONE_FIELD = 'UF_CRM_1584616588730';
 
 export function validId(value) {
   return typeof value === 'string' && /^[1-9]\d{0,15}$/.test(value)
@@ -62,7 +65,14 @@ export function createBitrixClient(baseUrl, { fetchImpl = fetch, timeoutMs = 100
       const phones = Array.isArray(contact.PHONE)
         ? contact.PHONE.filter(phone => typeof phone.VALUE === 'string' && phone.VALUE.trim()) : [];
       const phone = phones.find(p => p.VALUE_TYPE === 'MOBILE') ?? phones.find(p => p.VALUE_TYPE === 'WORK') ?? phones[0];
-      const telefono = phone?.VALUE.trim() || null;
+      // Campaigns store the actual customer's phone on the deal; its linked
+      // contact can belong to the person who created the test or lead.
+      const customerPhone = deal[CLIENT_PHONE_FIELD];
+      const dealPhone = customerPhone == null || customerPhone === false ? '' : String(customerPhone).trim();
+      if (dealPhone && !phoneVariants(dealPhone).length) {
+        throw new AppError(422, 'TELEFONO_CLIENTE_INVALIDO', 'Revisa el campo TELÉFONO CLIENTE (DEF) de la negociación.');
+      }
+      const telefono = dealPhone || phone?.VALUE.trim() || null;
       if (nombres.length > 255 || apellidos.length > 255 || (telefono?.length ?? 0) > 100) {
         throw new AppError(422, 'DATOS_DEMASIADO_LARGOS', 'El nombre o teléfono supera la longitud permitida.');
       }

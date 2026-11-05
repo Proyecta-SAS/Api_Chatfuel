@@ -1,3 +1,9 @@
+# V1.0.8 - 2026-11-05
+
+- Vincula la negociación usando TELÉFONO CLIENTE (DEF) cuando esté informado.
+- Conserva el teléfono del contacto como respaldo solo si ese campo está vacío.
+- Rechaza valores inválidos sin asociar el número de otra persona.
+
 # V1.0.7 - 2026-11-05
 
 - Conserva la agenda independiente incorporada por Juan-David-A-C en V1.0.6.

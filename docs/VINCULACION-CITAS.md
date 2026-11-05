@@ -1,5 +1,11 @@
 # Agenda propia y vinculación — V1.0.7
 
+Desde V1.0.8, `/registrar-cliente` prioriza **TELÉFONO CLIENTE (DEF)**
+(`UF_CRM_1584616588730`) de la negociación. El teléfono del contacto vinculado
+solo se usa cuando ese campo está vacío. Un valor no vacío inválido se rechaza
+para evitar vincular por accidente el número de otra persona. Se conserva el
+contacto y no se alteran los campos de Bitrix durante el registro.
+
 `src/calendar/service.js` integra perfiles, disponibilidad, reservas y sincronización.
 Se ejecuta dentro de Api_Chatfuel con su MySQL. Bitrix24 es el proveedor de calendario.
 
