@@ -1,4 +1,10 @@
-# Agenda propia y vinculación — V1.0.9
+# Agenda propia y vinculación — V1.0.10
+
+Desde V1.0.9 las nuevas llamadas duran 30 minutos. La consulta de huecos,
+validación de solapamientos, creación de evento y confirmación usan esa duración.
+Una opción antigua aún sin reservar se vuelve a presentar con disponibilidad
+actual y necesita confirmación nueva. Una reserva existente conserva su intervalo
+original y se recupera con la misma clave sin crear otro evento.
 
 Desde V1.0.8, `/registrar-cliente` prioriza **TELÉFONO CLIENTE (DEF)**
 (`UF_CRM_1584616588730`) de la negociación. El teléfono del contacto vinculado
@@ -52,7 +58,7 @@ sincroniza CRM. Si otra acción cambió la etapa desde la reserva, no la sobresc
 Los comentarios se reclaman antes de enviarlos; un envío incierto queda pendiente
 de revisión y no se repite automáticamente. No se recrea la negociación.
 
-## Resumen y feedback — V1.0.9
+## Resumen y feedback — V1.0.10
 
 Al sincronizar el perfil, el teléfono identifica la negociación registrada en
 MySQL y se valida el embudo 370. Se actualiza únicamente `UF_CRM_1646852109830`

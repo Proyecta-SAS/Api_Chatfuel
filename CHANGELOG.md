@@ -1,10 +1,18 @@
-# V1.0.9 - 2026-11-05
+# V1.0.10 - 2026-11-05
 
+- Integra la agenda de 30 minutos de V1.0.9 con el resumen y feedback.
 - Conserva la vinculación por TELÉFONO CLIENTE (DEF) incorporada en V1.0.8.
 - Guarda el feedback completo en RESUMEN DE LA NEGOCIACION (DEF) y verifica su escritura.
 - Organiza el comentario del timeline con títulos en negrita, secciones y saltos de línea.
 - Incluye datos, intereses, análisis, próximos pasos y pendientes sin inventar conclusiones.
 - Deduplica comentarios y permite reintentar errores de guardado del resumen.
+
+# V1.0.9 - 2026-11-05
+
+- Ofrece y reserva nuevas llamadas de 30 minutos, respetando ocupación y horario de cierre.
+- Conserva horarios separados y exige confirmación nueva para opciones antiguas de 10 minutos.
+- Recupera reservas anteriores sin ampliar su duración ni duplicar eventos.
+- Alinea los mensajes de agenda y la configuración de conversación con la nueva duración.
 
 # V1.0.8 - 2026-11-05
 

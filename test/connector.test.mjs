@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { createHandler, profileComment } from '../src/connector.mjs';
 
 const CONTACT = 'wa_999999999999_888888888888_573000000001';
@@ -7,19 +8,19 @@ const SECRET = 'local-test-secret-for-mock-testing-only-12345';
 const START = Date.parse('2026-11-03T21:00:00Z');
 const SLOTS = [
   { startAt: '2026-11-04T14:00:00Z', advisorId: 'advisor-one' },
-  { startAt: '2026-11-04T14:20:00Z', advisorId: 'advisor-one' },
   { startAt: '2026-11-04T14:40:00Z', advisorId: 'advisor-one' },
+  { startAt: '2026-11-04T15:20:00Z', advisorId: 'advisor-one' },
   { startAt: '2026-11-04T18:00:00Z', advisorId: 'advisor-one' },
-  { startAt: '2026-11-04T18:20:00Z', advisorId: 'advisor-one' },
   { startAt: '2026-11-04T18:40:00Z', advisorId: 'advisor-one' },
+  { startAt: '2026-11-04T19:20:00Z', advisorId: 'advisor-one' },
   { startAt: '2026-11-05T15:00:00Z', advisorId: 'advisor-two' },
-  { startAt: '2026-11-05T15:20:00Z', advisorId: 'advisor-two' },
   { startAt: '2026-11-05T15:40:00Z', advisorId: 'advisor-two' },
+  { startAt: '2026-11-05T16:20:00Z', advisorId: 'advisor-two' },
   { startAt: '2026-11-05T19:00:00Z', advisorId: 'advisor-two' },
-  { startAt: '2026-11-05T19:20:00Z', advisorId: 'advisor-two' },
   { startAt: '2026-11-05T19:40:00Z', advisorId: 'advisor-two' },
+  { startAt: '2026-11-05T20:20:00Z', advisorId: 'advisor-two' },
   { startAt: '2026-11-06T16:00:00Z', advisorId: 'advisor-one' },
-].map(slot => ({ ...slot, endAt: new Date(Date.parse(slot.startAt) + 600_000).toISOString() }));
+].map(slot => ({ ...slot, endAt: new Date(Date.parse(slot.startAt) + 1_800_000).toISOString() }));
 
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
@@ -82,7 +83,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
       if (bookingError === 'network-once' && !failed) { failed = true; throw new Error('simulated lost response'); }
       return Response.json({ ok: true, data: { appointmentId: 'mock-booking', bitrixEventId: invalidBooking ? '' : '12345',
         ...(payload.bitrixDealId ? { crmSync: { dealId: payload.bitrixDealId, stageId: payload.bitrixStageId, status: stagePending ? 'pending' : 'completed' } } : {}),
-        status: 'confirmed', startAt: payload.startAt, endAt: new Date(Date.parse(payload.startAt) + 600_000).toISOString() } });
+        status: 'confirmed', startAt: payload.startAt, endAt: new Date(Date.parse(payload.startAt) + 1_800_000).toISOString() } });
     }
     if (url.endsWith('/appointments/retry-crm')) return Response.json({ ok: true, data: { results: [
       { appointmentId: payload.appointmentId, crmSync: { dealId: '777', stageId: 'C370:EXECUTING', status: 'completed' } },
@@ -277,6 +278,8 @@ test('selection alone never reserves; explicit confirmation does; repeated reque
   const booked = await f.request('step', 'SÍ');
   assert.equal(booked.done, 'si');
   assert.match(booked.message, /quedó agendada/);
+  assert.match(booked.message, /Duración: 30 minutos/);
+  assert.equal(f.bookings()[0].payload.durationMinutes, 30);
   assert.equal(f.fields.bitrix_evento_id, '12345');
   assert.equal(f.fields.bitrix_reserva_pendiente, 'no');
   await f.request('step', 'SÍ');
@@ -679,7 +682,7 @@ test('contextual consent still waits for the current assistant reply and leaves 
 
 function localFreeSlot(time, advisorId = 'advisor-one') {
   const startAt = `2026-11-04T${time}:00-05:00`;
-  return { startAt, endAt: new Date(Date.parse(startAt) + 600_000).toISOString(), advisorId };
+  return { startAt, endAt: new Date(Date.parse(startAt) + 1_800_000).toISOString(), advisorId };
 }
 
 test('la agenda reparte las opciones entre el inicio, la mitad y el final de la franja libre', async () => {
@@ -690,7 +693,7 @@ test('la agenda reparte las opciones entre el inicio, la mitad y el final de la 
   const f = fixture({ availabilitySlots });
   const response = await prepareOptions(f);
   const slots = JSON.parse(Buffer.from(response.state.split('.')[0], 'base64url')).slots;
-  assert.deepEqual(slots.map(slot => slot.startAt), ['08:30', '10:10', '11:50'].map(time => localFreeSlot(time).startAt));
+  assert.deepEqual(slots.map(slot => slot.startAt), ['08:30', '10:00', '11:30'].map(time => localFreeSlot(time).startAt));
   assert.equal(f.bookings().length, 0);
 });
 
@@ -707,11 +710,28 @@ test('solo ofrece huecos realmente libres y no duplica horas de distintos asesor
 });
 
 test('con pocos huecos devuelve menos opciones antes que horas consecutivas', async () => {
-  for (const [times, expected] of [[['08:30', '08:40', '08:50'], ['08:30', '08:50']], [['08:30', '08:40'], ['08:30']]]) {
+  for (const [times, expected] of [[['08:30', '09:00', '09:30'], ['08:30', '09:30']], [['08:30', '09:00'], ['08:30']]]) {
     const f = fixture({ availabilitySlots: times.map(time => localFreeSlot(time)) });
     const response = await prepareOptions(f);
     const slots = JSON.parse(Buffer.from(response.state.split('.')[0], 'base64url')).slots;
     assert.deepEqual(slots.map(slot => slot.startAt), expected.map(time => localFreeSlot(time).startAt));
     assert.equal(f.bookings().length, 0);
+  }
+});
+
+test('una opción antigua de diez minutos exige horarios y confirmación nuevos', async()=>{
+  for(const step of ['choose','confirm']){
+    const f=fixture();await prepareOptions(f);
+    if(step==='confirm')await f.request('step','1');
+    const state=JSON.parse(Buffer.from(f.fields.bitrix_agenda_estado.split('.')[0],'base64url'));
+    for(const slot of [...state.slots,...(state.slot?[state.slot]:[])])slot.endAt=new Date(Date.parse(slot.startAt)+600_000).toISOString();
+    const payload=Buffer.from(JSON.stringify(state)).toString('base64url');
+    f.fields.bitrix_agenda_estado=payload+'.'+createHmac('sha256',SECRET).update(payload).digest('base64url');
+    const refreshed=await f.request('step',step==='confirm'?'sí':'1');
+    assert.match(refreshed.message,/30 minutos/);assert.equal(f.bookings().length,0);
+    const current=JSON.parse(Buffer.from(refreshed.state.split('.')[0],'base64url'));
+    assert.ok(current.slots.every(s=>Date.parse(s.endAt)-Date.parse(s.startAt)===1_800_000));
+    await f.request('step','1');assert.equal(f.bookings().length,0);
+    assert.match((await f.request('step','sí')).message,/Duración: 30 minutos/);
   }
 });

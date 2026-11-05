@@ -9,7 +9,7 @@ import { DEAL_SUMMARY_FIELD } from '../src/calendar/profileSummary.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const advisors = [{ id:'advisor-a', name:'Asesor prueba', bitrixUserId:'10' }];
-const request = { startAt:'2026-11-03T09:00:00-05:00', durationMinutes:10, advisorId:'advisor-a', advisorPool:true };
+const request = { startAt:'2026-11-03T09:00:00-05:00', durationMinutes:30, advisorId:'advisor-a', advisorPool:true };
 function memoryStore() {
   const profiles = new Map(), bookings = new Map(), locks = new Map(), comments = new Set();
   return {
@@ -96,6 +96,7 @@ async function scenarios(t, create) {
     assert.equal(f.responsible,'10');assert.equal(result.data.crmSync.responsibleId,'10');
     assert.deepEqual(f.calls.find(c=>c.method==='crm.deal.update').params.fields,{STAGE_ID:'C370:EXECUTING',ASSIGNED_BY_ID:'10'});
     const add=f.calls.find(c=>c.method==='calendar.event.add');assert.deepEqual(add.params.crm_fields,['D_777']);
+    assert.equal(Date.parse(add.params.to)-Date.parse(add.params.from),1_800_000);
     assert.equal((await f.store.getByKey('booking-1')).status,'confirmed');
     assert.ok(f.calls.findIndex(c=>c.method==='crm.deal.update')>f.calls.findIndex(c=>c.method==='calendar.event.add'));
     assert.equal((await f.service.book(code,body,'booking-1')).data.duplicate,true);
@@ -345,15 +346,37 @@ test('importador MySQL conserva citas y es idempotente', {skip:!process.env.TEST
     const snapshot={profiles:[{codigo:'LEGACY-1',telefono:'573000000001',nombre:'Prueba',answers:{}}],appointments:[{
       id:'11111111-1111-4111-8111-111111111111',client_code:'LEGACY-1',advisor_user_id:'advisor-a',bitrix_owner_id:'10',bitrix_event_id:'200',
       idempotency_key:'chatfuel-'+'a'.repeat(64),starts_at:request.startAt,ends_at:'2026-11-03T09:10:00-05:00',status:'confirmed',
-      request_payload:request,response_payload:{crmSync:null},created_at:'2026-11-02T12:00:00Z',
+      request_payload:{...request,durationMinutes:10},response_payload:{crmSync:null},created_at:'2026-11-02T12:00:00Z',
     }]};
     assert.deepEqual(await importCalendar(admin,snapshot),{profilesImported:1,appointmentsImported:1});
     assert.deepEqual(await importCalendar(admin,snapshot),{profilesImported:0,appointmentsImported:0});
     const row=await db.scheduling.getByKey(snapshot.appointments[0].idempotency_key);
     assert.equal(row.bitrixEventId,'200');assert.equal(Date.parse(row.startAt),Date.parse(request.startAt));
     const f=fixture(db.scheduling);
-    assert.equal((await f.service.book('LEGACY-1',request,snapshot.appointments[0].idempotency_key)).data.duplicate,true);
+    assert.equal((await f.service.book('LEGACY-1',{...request,durationMinutes:10},snapshot.appointments[0].idempotency_key)).data.duplicate,true);
     assert.equal(f.events.length,0);
     snapshot.profiles[0].telefono='573000000002';await assert.rejects(importCalendar(admin,snapshot),/PROFILE_CONFLICT/);
   } finally {if(db)await db.close();await admin.query(`DROP DATABASE IF EXISTS \`${name}\``);await admin.end();}
+});
+
+test('los treinta minutos completos deben estar libres y caber antes del cierre',async()=>{
+  const f=fixture();const code=await f.profile();
+  const unavailable=createSchedulingService({database:f.database,advisors,now:()=>NOW,bitrix:{call:async(method)=>{
+    if(method==='calendar.accessibility.get')return {'10':[{DATE_FROM:'2026-11-03T09:20:00-05:00',DATE_TO:'2026-11-03T09:30:00-05:00'}]};
+    throw Error('No calendar write expected');
+  }}});
+  assert.equal((await unavailable.availability(code,{dateFrom:'2026-11-03',dateTo:'2026-11-03',fromTime:'09:00',toTime:'09:30'})).data.slots.length,0);
+  await assert.rejects(unavailable.book(code,request,'partial-block'),/SLOT_UNAVAILABLE/);
+  await assert.rejects(f.service.book(code,{...request,startAt:'2026-11-03T16:40:00-05:00'},'after-close'),/INVALID_START/);
+  assert.equal(f.events.length,0);
+});
+
+test('recupera una cita antigua de diez minutos sin ampliarla ni crear otra',async()=>{
+  const f=fixture();const code=await f.profile();const old={...request,durationMinutes:10};
+  await f.store.insertPending({id:'legacy',clientCode:code,key:'legacy-ten',startAt:old.startAt,endAt:'2026-11-03T09:10:00-05:00',request:old,response:{crmSync:null}});
+  await f.store.confirm('legacy','200',{crmSync:null});
+  const result=await f.service.book(code,old,'legacy-ten');
+  assert.equal(result.data.duplicate,true);assert.equal(Date.parse(result.data.endAt)-Date.parse(result.data.startAt),600_000);
+  await assert.rejects(f.service.book(code,old,'new-ten'),/INVALID_START/);
+  assert.equal(f.events.length,0);
 });

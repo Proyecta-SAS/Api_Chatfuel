@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
+import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 
-export const RELEASE_VERSION = '1.0.9';
+export const RELEASE_VERSION = '1.0.10';
 
 const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',
@@ -153,7 +154,7 @@ function spreadSlots(slots) {
   if (!unique.length) return [];
   const first = unique[0], last = unique.at(-1);
   const start = Date.parse(first.startAt), end = Date.parse(last.startAt);
-  const separation = 20 * 60_000;
+  const separation = APPOINTMENT_DURATION_MS + 10 * 60_000;
   if (end - start < separation) return [first];
   const midpoint = (start + end) / 2;
   const middle = unique.slice(1, -1)
@@ -296,7 +297,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   async function available(clientCode, from, to, window, excluded = []) {
     const result = await crm(`/api/v1/leads/${encodeURIComponent(clientCode)}/availability`, {
-      advisorPool: true, mode: 'next_days', durationMinutes: 10, quantity: 2,
+      advisorPool: true, mode: 'next_days', durationMinutes: APPOINTMENT_DURATION_MINUTES, quantity: 2,
       dateFrom: from, dateTo: to, daysAhead: 21, fromTime: window.fromTime, toTime: window.toTime,
       weekdays: ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'],
       excludeStarts: excluded.slice(-500),
@@ -305,7 +306,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     if (!Array.isArray(raw) || result.data.source !== 'bitrix_accessibility') throw new Error('INVALID_AVAILABILITY');
     return raw.filter(slot => {
       const start = Date.parse(slot.startAt), end = Date.parse(slot.endAt);
-      if (!(start > now()) || end - start !== 600_000 || !slot.advisorId) return false;
+      if (!(start > now()) || end - start !== APPOINTMENT_DURATION_MS || !slot.advisorId) return false;
       const date = dateAt(start);
       const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
       return weekday !== 0 && weekday !== 6 && date >= from && date <= to
@@ -315,7 +316,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function askPeriod(contactId, clientCode, { date, intro = '' } = {}) {
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
-      `${intro ? intro + '\n\n' : 'Con gusto coordinamos una llamada de 10 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} el contacto en la mañana o en la tarde?`);
+      `${intro ? intro + '\n\n' : 'Con gusto coordinamos una llamada de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} el contacto en la mañana o en la tarde?`);
   }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
@@ -336,7 +337,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       excludedStarts: [...new Set([...excluded, ...slots.map(slot => slot.startAt)])] };
     if (!slots.length) return reply(contactId, context, 'No encontré otros horarios libres en ese día y franja. ¿Prefieres otro día u otra franja?');
     return reply(contactId, context,
-      `🕒 Estos son los horarios libres para el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
+      `🕒 Estos son los horarios libres para una llamada de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
   }
   async function options(contactId, clientCode, excluded = [], context = {}) {
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
@@ -598,6 +599,14 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { step: 'cancelled', clientCode: state.clientCode },
         'Dejamos la llamada pendiente. No reservé ninguna cita; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
+      // A selection offered under the previous duration is not consent to a
+      // longer call. Refresh availability and require a new choice/confirmation.
+      const offered = state.step === 'confirm' ? [state.slot] : state.slots;
+      if (['choose','confirm'].includes(state.step) && Array.isArray(offered)
+        && offered.some(slot => Date.parse(slot?.endAt) - Date.parse(slot?.startAt) !== APPOINTMENT_DURATION_MS)) {
+        if (state.date >= dateAt(now()) && state.date <= addDays(dateAt(now()),21)) return offerTimes(contactId,state,state.date);
+        return offerDays(contactId,state.clientCode,{fromTime:state.fromTime||'08:30',toTime:state.toTime||'17:00'});
+      }
       if (state.step === 'name' || state.step === 'city') {
         const valid = state.step === 'name'
           ? /^[\p{L}][\p{L}\p{M}' .-]{2,119}$/u.test(answer) && answer.split(/\s+/).length >= 2
@@ -649,7 +658,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         if (index === null) return reply(contactId, state, '¿Cuál de los horarios ofrecidos te sirve? Puedes responder con la hora, el número o decir, por ejemplo, «la primera». También podemos revisar otro día u otra franja.');
         const slot = state.slots[index];
         return reply(contactId, { ...state, step: 'confirm', slot },
-          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una llamada de 10 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
+          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una llamada de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
       }
       if (state.step === 'confirm' || state.step === 'booking') {
         if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
@@ -669,6 +678,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               { done: error.code === 'TELEFONO_AMBIGUO', human: error.code === 'TELEFONO_AMBIGUO' });
           }
         }
+        const durationMinutes = state.step === 'booking'
+          ? (Date.parse(state.slot.endAt) - Date.parse(state.slot.startAt)) / 60_000
+          : APPOINTMENT_DURATION_MINUTES;
         const key = `chatfuel-${createHash('sha256').update(`${contactId}|${state.clientCode}|${state.slot.startAt}|${state.slot.advisorId}`).digest('hex')}`;
         const legacyPending = state.legacyPending === true || (state.step === 'booking' && state.engine !== 'local-v1');
         bookingMayExist = true;
@@ -676,7 +688,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           bitrix_agenda_estado: encode(contactId, { ...state, step: 'booking', bookingDealId, legacyPending }) });
         try {
           const result = await crm(`/api/v1/leads/${encodeURIComponent(state.clientCode)}/appointments`, {
-            startAt: state.slot.startAt, durationMinutes: 10, advisorId: state.slot.advisorId,
+            startAt: state.slot.startAt, durationMinutes, advisorId: state.slot.advisorId,
             advisorPool: true, idempotencyKey: key,
             ...(legacyPending ? { resumeOnly: true } : {}),
             ...(bookingDealId ? { bitrixDealId: bookingDealId, bitrixStageId: 'C370:EXECUTING' } : {}),
@@ -685,13 +697,13 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           if (booking?.status !== 'confirmed' || !/^\d+$/.test(String(booking.bitrixEventId ?? ''))
             || Number(booking.bitrixEventId) <= 0 || !booking.appointmentId
             || Date.parse(booking.startAt) !== Date.parse(state.slot.startAt)
-            || Date.parse(booking.endAt) - Date.parse(booking.startAt) !== 600_000) throw new Error('INVALID_BOOKING_CONFIRMATION');
+            || Date.parse(booking.endAt) - Date.parse(booking.startAt) !== durationMinutes * 60_000) throw new Error('INVALID_BOOKING_CONFIRMATION');
           const crmSyncPending = Boolean(bookingDealId && !(booking.crmSync?.status === 'completed'
             && String(booking.crmSync.dealId) === bookingDealId && booking.crmSync.stageId === 'C370:EXECUTING'));
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu llamada quedó agendada para ${label(state.slot)} (hora de Colombia). Duración: 10 minutos. Te esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
+          `✅ Tu llamada quedó agendada para ${label(state.slot)} (hora de Colombia). Duración: ${durationMinutes} minutos. Te esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',
