@@ -20,7 +20,7 @@ HTTP al proyecto anterior. La carpeta `AI-First-One/` es temporal y se puede eli
 - Proyecto Railway: `a8744968-739a-441f-ab07-eca9488a3830`.
 - Servicio: `b15812dd-8735-45f3-9e31-086c4862c50b`.
 - Entorno: `ac461721-7ee3-4600-9ed6-126a2d8b0d0a`.
-- GitHub: `JhonAlex37/Api_Chatfuel`, rama `main`.
+- GitHub de destino: `Proyecta-SAS/Api_Chatfuel`, rama `main`.
 - Dominio y acciones Chatfuel: `apichatfuel-production.up.railway.app`.
 
 Se prepararon `APPOINTMENT_ADVISORS_JSON` y `BITRIX_CALENDAR_WEBHOOK_URL` como valores

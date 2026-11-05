@@ -19,8 +19,8 @@ function Invoke-Checked {
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
     $origin = Invoke-Checked git @('remote', 'get-url', '--push', 'origin')
-    if ($origin -notmatch '^(https://github\.com/|git@github\.com:)JhonAlex37/Api_Chatfuel(?:\.git)?/?$') {
-        throw 'El remoto origin no corresponde a JhonAlex37/Api_Chatfuel. No se cambio la identidad.'
+    if ($origin -notmatch '^(https://github\.com/|git@github\.com:)Proyecta-SAS/Api_Chatfuel(?:\.git)?/?$') {
+        throw 'El remoto origin no corresponde a Proyecta-SAS/Api_Chatfuel. No se cambio la identidad.'
     }
 
     $account = (Invoke-Checked gh @('api', 'user')) | ConvertFrom-Json
@@ -28,7 +28,7 @@ try {
         throw "La sesion de GitHub CLI pertenece a $($account.login), no a $Cuenta. En tu computador, usa gh auth switch --hostname github.com --user $Cuenta si ya agregaste esa cuenta, o gh auth login --hostname github.com para iniciar sesion con ella. Despues repite este comando. No se cambio la identidad."
     }
 
-    $permission = (Invoke-Checked gh @('api', "repos/JhonAlex37/Api_Chatfuel/collaborators/$($account.login)/permission")) | ConvertFrom-Json
+    $permission = (Invoke-Checked gh @('api', "repos/Proyecta-SAS/Api_Chatfuel/collaborators/$($account.login)/permission")) | ConvertFrom-Json
     if ($permission.permission -notin @('write', 'maintain', 'admin')) {
         throw 'La cuenta autenticada no tiene permiso de escritura. No se cambio la identidad.'
     }

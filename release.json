@@ -2,7 +2,7 @@
   "version": "1.0.7",
   "component": "api-chatfuel",
   "runtime": "node24",
-  "source_repository": "https://github.com/JhonAlex37/Api_Chatfuel",
+  "source_repository": "https://github.com/Proyecta-SAS/Api_Chatfuel",
   "connector_sha256": "cc6bba9c569554773bfb9452a8fbe8159c5b955528e7e277898a317353401035",
   "calendar_provider": "bitrix",
   "calendar_storage": "mysql",
