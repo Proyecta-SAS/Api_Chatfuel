@@ -5,6 +5,7 @@ import { bogotaToday, candidateDates, parseBitrixDate, weekdayForDate } from './
 import { calculateAdvisorDateSlots } from './appointmentAdvisorAvailability.js';
 import { requireBitrixEventId } from './appointmentBooking.js';
 import { confirmedCalendarOwner } from './confirmedEvent.js';
+import { DEAL_SUMMARY_FIELD, timelineSummary } from './profileSummary.js';
 
 export const APPOINTMENT_STAGE = 'C370:EXECUTING';
 const fail = code => { throw Object.assign(new Error(code), { code, retryable: false }); };
@@ -49,14 +50,22 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     // summary; a missing match never creates an unrelated Bitrix deal.
     if (registered && body.summary) {
       const id = String(registered.id_negociacion);
-      await deal(id);
-      const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${body.summary}`).digest('hex');
-      if (await store.claimComment(hash, id)) {
-        const commentId = await bitrix.call('crm.timeline.comment.add', { fields: {
-          ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: body.summary,
-        } });
-        await store.confirmComment(hash, requireBitrixEventId(commentId));
-      }
+      await store.withLock('profile-summary:' + id, async db => {
+        const current = await deal(id);
+        // A summary field write is safe to retry. Verify it before claiming a comment,
+        // so a failure cannot lose the comment or report the profile as synchronized.
+        if (current[DEAL_SUMMARY_FIELD] !== body.summary) {
+          if (await bitrix.call('crm.deal.update', { id, fields: { [DEAL_SUMMARY_FIELD]: body.summary } }) !== true
+            || (await deal(id))[DEAL_SUMMARY_FIELD] !== body.summary) fail('SUMMARY_NOT_CONFIRMED');
+        }
+        const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${body.summary}`).digest('hex');
+        if (await db.claimComment(hash, id)) {
+          const commentId = await bitrix.call('crm.timeline.comment.add', { fields: {
+            ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(body.summary),
+          } });
+          await db.confirmComment(hash, requireBitrixEventId(commentId));
+        }
+      });
     }
     return { ok: true, persisted: true, clientId: profile.clientCode };
   }

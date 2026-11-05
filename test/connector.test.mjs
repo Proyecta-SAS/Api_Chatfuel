@@ -416,6 +416,24 @@ test('profile comments distinguish missing facts and display names from confirme
   assert.doesNotMatch(comment, /50\.000\.000|clasifica al cliente|no tener cobertura|Chatfuel conversó con Nombre del perfil/);
 });
 
+test('feedback organiza hechos, señales y acciones sin inventar objeciones ni resultados', () => {
+  const summary = profileComment({nombre_completo:'Persona de prueba', obligacion_vivienda_activa:'sí',
+    rch_cuotas_atrasadas:'2', rch_frech:'sí', senal_consulta_honorarios:'sí', senal_reducir_plazo:'sí',
+    senal_deuda_aumenta:'no', modalidad_pesos_uvr:'UVR', anos_restantes:'12'}, {handoff:true});
+  assert.match(summary,/DATOS RECOPILADOS\n• /);
+  assert.match(summary,/\n\nANÁLISIS PARA EL ASESOR\n/);
+  assert.match(summary,/Modalidad del crédito: UVR/);
+  assert.match(summary,/Hay cuotas vencidas declaradas/);
+  assert.match(summary,/Explicar los honorarios/);
+  assert.match(summary,/Validar las condiciones y vigencia de la cobertura/);
+  assert.match(summary,/sin prometer resultados/);
+  assert.match(summary,/No se dispone de un registro específico de objeciones/);
+  assert.doesNotMatch(summary,/Preocupación registrada por el aumento|cliente aprobado|cita confirmada/i);
+  const missing = profileComment({});
+  assert.match(missing,/Confirmar si existe una obligación/);
+  assert.doesNotMatch(missing,/Hay cuotas vencidas declaradas|Declara no tener cobertura|Existe una obligación de vivienda activa declarada/);
+});
+
 test('zero balance, zero elapsed years and explicit no coverage are preserved without inference', async () => {
   const f = fixture({ human: true, initial: { rch_banco: 'FNA', rch_frech: false,
     rch_saldo_millones: 0, rch_anos_pagando: 0, rch_cuotas_atrasadas: 0 } });

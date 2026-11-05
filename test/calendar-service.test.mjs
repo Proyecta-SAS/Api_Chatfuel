@@ -5,6 +5,7 @@ import { createSchedulingService, readAdvisors } from '../src/calendar/service.j
 import { createDatabase } from '../src/database.js';
 import { createHandler } from '../src/connector.mjs';
 import { importCalendar } from '../scripts/import-calendar.mjs';
+import { DEAL_SUMMARY_FIELD } from '../src/calendar/profileSummary.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const advisors = [{ id:'advisor-a', name:'Asesor prueba', bitrixUserId:'10' }];
@@ -46,6 +47,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   let failCreate=false, failStage=false, stage='C370:NEW', category='370', omitCalendar=false;
   let responsible='99', ignoreResponsible=false, blockedOwner=null, eventOverride={}, time=NOW;
   let registered = {id_negociacion:'777'};
+  let summary = '', ignoreSummary = false;
   const calls=[], events=[];
   const database={scheduling:store,findClienteByPhone:async()=>registered};
   const bitrix={call:async(method,params)=>{
@@ -61,8 +63,10 @@ function fixture(store = memoryStore(), pool = advisors) {
       if(failCreate) throw new Error('Lost response');
       return id;
     }
-    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N'};
-    if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');stage=params.fields.STAGE_ID;
+    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',[DEAL_SUMMARY_FIELD]:summary};
+    if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');
+      if(params.fields.STAGE_ID) stage=params.fields.STAGE_ID;
+      if(!ignoreSummary && Object.hasOwn(params.fields,DEAL_SUMMARY_FIELD)) summary=params.fields[DEAL_SUMMARY_FIELD];
       if(!ignoreResponsible && params.fields.ASSIGNED_BY_ID) responsible=String(params.fields.ASSIGNED_BY_ID);return true; }
     if(method==='crm.timeline.comment.add') return '600';
     throw new Error('Unexpected method: '+method);
@@ -72,6 +76,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   return {service,database,store,calls,events,async profile(phone='573000000001'){
     const result=await service.upsert({phone,contactName:'Prueba simulada'});return result.clientId;
   },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
+  get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},
   set ignoreResponsible(v){ignoreResponsible=v;},set blockedOwner(v){blockedOwner=v;},set eventOverride(v){eventOverride=v;},
   get stage(){return stage;},set stage(v){stage=v;},set category(v){category=v;},set failCreate(v){failCreate=v;},
   set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
@@ -187,6 +192,68 @@ async function scenarios(t, create) {
     const first=await f.service.upsert(body);assert.equal(first.clientId,'OLD-CODE');
     assert.equal((await f.service.upsert(body)).clientId,first.clientId);
     assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+    assert.equal(f.summary,body.summary);
+    assert.equal(f.calls.filter(c=>c.method==='crm.deal.update').length,1);
+    assert.equal(f.stage,'C370:NEW');assert.equal(f.responsible,'99');
+  });
+  await t.test('resumen actualizado y timeline con negrita, saltos y contenido seguro',async()=>{
+    const f=await create();const body={phone:'573000000001',summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDATOS RECOPILADOS\n• Nombre: [USER=1]Prueba[/USER] <b>texto</b>'};
+    await f.service.upsert(body);
+    assert.equal(f.summary,body.summary);
+    const comment=f.calls.find(c=>c.method==='crm.timeline.comment.add').params.fields;
+    assert.equal(comment.ENTITY_ID,'777');assert.equal(comment.ENTITY_TYPE,'deal');
+    assert.match(comment.COMMENT,/\[b\]DATOS RECOPILADOS\[\/b\]\n• Nombre:/);
+    assert.doesNotMatch(comment.COMMENT,/\[USER|<b>/);
+    assert.ok(comment.COMMENT.includes('\n\n'));
+    await f.service.upsert({...body,summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDatos nuevos'});
+    assert.match(f.summary,/Datos nuevos/);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,2);
+  });
+  await t.test('campo ignorado por Bitrix no confirma resumen; el reintento recupera sin duplicar',async()=>{
+    const f=await create();const body={phone:'573000000001',summary:'Resumen por confirmar'};
+    f.ignoreSummary=true;
+    await assert.rejects(f.service.upsert(body),/SUMMARY_NOT_CONFIRMED/);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,0);
+    f.ignoreSummary=false;await f.service.upsert(body);await f.service.upsert(body);
+    assert.equal(f.summary,body.summary);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+  });
+  await t.test('sin negociación registrada no escribe resumen ni comentario',async()=>{
+    const f=await create();f.registered=null;
+    await f.service.upsert({phone:'573000000001',summary:'Perfil local'});
+    assert.equal(f.calls.filter(c=>c.method.startsWith('crm.')).length,0);
+  });
+  await t.test('error de resumen permite reintento y embudo ajeno no se modifica',async()=>{
+    const f=await create();const body={phone:'573000000001',summary:'Resumen de prueba'};
+    f.failStage=true;await assert.rejects(f.service.upsert(body),/CRM unavailable/);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,0);
+    f.failStage=false;await f.service.upsert(body);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+    f.category='1';await assert.rejects(f.service.upsert({...body,summary:'Cambio'}),/INVALID_BITRIX_DEAL/);
+    assert.equal(f.summary,body.summary);
+  });
+  await t.test('resúmenes concurrentes iguales solo escriben una vez',async()=>{
+    const f=await create();await f.profile();
+    const body={phone:'573000000001',summary:'Resumen concurrente'};
+    await Promise.all([f.service.upsert(body),f.service.upsert(body)]);
+    assert.equal(f.calls.filter(c=>c.method==='crm.deal.update').length,1);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+  });
+  await t.test('feedback antes y después de reservar conserva evento, vínculo, responsable e idempotencia',async()=>{
+    const f=await create();
+    const profile={phone:'573000000001',summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDATOS RECOPILADOS\nPerfil de prueba'};
+    const {clientId}=await f.service.upsert(profile);
+    const body={...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'};
+    const booking=await f.service.book(clientId,body,'feedback-booking');
+    const before=structuredClone(f.events);
+    await f.service.upsert({...profile,summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDATOS RECOPILADOS\nPerfil actualizado'});
+    const repeat=await f.service.book(clientId,body,'feedback-booking');
+    assert.equal(repeat.data.bitrixEventId,booking.data.bitrixEventId);
+    assert.equal(repeat.data.duplicate,true);
+    assert.deepEqual(f.events,before);assert.equal(f.events.length,1);
+    assert.deepEqual(f.events[0].UF_CRM_CAL_EVENT,['D_777']);
+    assert.equal(f.responsible,'10');assert.equal(f.stage,'C370:EXECUTING');
+    assert.equal((await f.store.getByKey('feedback-booking')).status,'confirmed');
   });
 }
 test('motor independiente con Bitrix simulado',async t=>scenarios(t,async()=>fixture()));

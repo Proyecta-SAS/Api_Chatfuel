@@ -1,4 +1,4 @@
-# Agenda propia y vinculación — V1.0.7
+# Agenda propia y vinculación — V1.0.9
 
 Desde V1.0.8, `/registrar-cliente` prioriza **TELÉFONO CLIENTE (DEF)**
 (`UF_CRM_1584616588730`) de la negociación. El teléfono del contacto vinculado
@@ -51,6 +51,28 @@ Un error de etapa conserva la cita con `crmSync.status: pending`. El reintento s
 sincroniza CRM. Si otra acción cambió la etapa desde la reserva, no la sobrescribe.
 Los comentarios se reclaman antes de enviarlos; un envío incierto queda pendiente
 de revisión y no se repite automáticamente. No se recrea la negociación.
+
+## Resumen y feedback — V1.0.9
+
+Al sincronizar el perfil, el teléfono identifica la negociación registrada en
+MySQL y se valida el embudo 370. Se actualiza únicamente `UF_CRM_1646852109830`
+(RESUMEN DE LA NEGOCIACION (DEF)), con texto organizado en secciones; la respuesta
+de `crm.deal.get` debe confirmar el valor antes de enviar el comentario al timeline.
+El campo fue consultado en el portal: texto simple, editable, no múltiple y sin
+límite configurado. La fecha de la cita y las automatizaciones quedan fuera de este cambio.
+
+El comentario presenta el mismo feedback con títulos BBCode `[b]`, líneas separadas
+y espacios entre secciones. Los datos del contacto se neutralizan para que no
+introduzcan etiquetas, menciones ni enlaces de formato. Los hechos y señales
+proceden de los atributos del perfilamiento; el análisis y las recomendaciones
+son reglas basadas en esos datos, sin un modelo adicional ni conclusiones inventadas.
+
+El resumen se escribe de forma idempotente y los comentarios se deduplican en MySQL.
+Un fallo de actualización no marca el perfil como sincronizado. La nueva versión del
+feedback permite actualizar una vez los perfiles de conversaciones abiertas que el
+observador ya sincronizaba; no realiza una migración masiva de negociaciones cerradas.
+
+Formato de comentarios: [documentación de Bitrix](https://helpdesk.bitrix24.com/open/11432910/).
 
 ## Sesiones anteriores
 

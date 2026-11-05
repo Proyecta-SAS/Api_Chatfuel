@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
+import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
 
-export const RELEASE_VERSION = '1.0.8';
+export const RELEASE_VERSION = '1.0.9';
 
 const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',
@@ -87,12 +88,48 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
     const value = declared(fields, field);
     if (value) details.push(`${label}: ${value}.`);
   }
+  for (const [field, label] of [['modalidad_pesos_uvr', 'Modalidad del crédito'],
+    ['anos_restantes', 'Años restantes declarados'], ['numero_titulares', 'Número de titulares declarado'],
+    ['puede_aumentar_cuota_mas_10', 'Posibilidad declarada de aumentar la cuota más del 10%']]) {
+    const value = declared(fields, field);
+    if (value) details.push(`${label}: ${value}.`);
+  }
+  const interests = [];
+  for (const [field, label] of [
+    ['senal_reducir_plazo', 'Interés registrado en reducir el plazo del crédito.'],
+    ['senal_reducir_intereses', 'Interés registrado en reducir intereses.'],
+    ['senal_deuda_aumenta', 'Preocupación registrada por el aumento de la deuda.'],
+    ['senal_conoce_ley_vivienda', 'Declara conocer la ley de vivienda.'],
+    ['senal_consulta_honorarios', 'Consulta registrada sobre honorarios.'],
+    ['senal_info_adicional', 'Solicitud registrada de información adicional.'],
+  ]) if (yes(declared(fields, field))) interests.push(label);
+  if (!interests.length) interests.push('No hay señales adicionales de interés o consultas registradas.');
   const followUp = [handoff
     ? 'Motivo de atención: transferencia al equipo humano desde Chatfuel. Revisar el contexto y los datos pendientes antes de orientar el caso.'
     : 'Motivo de atención: solicitud de agendamiento RCH. La cita está pendiente de confirmación técnica en Bitrix.'];
-  if (pending.length) followUp.push(`Datos pendientes: ${pending.join('; ')}.`);
-  followUp.push('Scoring nuevo de Chatfuel pendiente de implementación; no se asigna puntaje ni clasificación desde este comentario.');
-  return `${details.join(' ')}\n\n${followUp.join(' ')}`;
+  const analysis = ['Información basada en las respuestas registradas; requiere validación del asesor.'];
+  const nextSteps = [];
+  if (yes(active)) analysis.push('Existe una obligación de vivienda activa declarada; revisar sus condiciones antes de evaluar opciones.');
+  else if (no(active)) analysis.push('El cliente declara no tener obligación de vivienda activa; aclarar el motivo de atención antes de continuar la evaluación.');
+  else nextSteps.push('Confirmar si existe una obligación de vivienda activa.');
+  if (arrears !== null && /^\d+$/.test(arrears) && Number(arrears) > 0) {
+    analysis.push('Hay cuotas vencidas declaradas; revisar el estado actual de la obligación.');
+    nextSteps.push('Aclarar las cuotas vencidas y el estado de pago antes de proponer alternativas.');
+  }
+  if (yes(coverage)) nextSteps.push('Validar las condiciones y vigencia de la cobertura Mi Casa Ya o FRECH declarada.');
+  if (yes(declared(fields, 'senal_consulta_honorarios'))) nextSteps.push('Explicar los honorarios y el alcance del servicio; confirmar si queda alguna inquietud.');
+  if (yes(declared(fields, 'senal_deuda_aumenta'))) nextSteps.push('Revisar con el cliente su extracto y la evolución del saldo.');
+  if (yes(declared(fields, 'senal_reducir_plazo')) || yes(declared(fields, 'senal_reducir_intereses'))) {
+    nextSteps.push('Precisar el objetivo de plazo o intereses y evaluar las condiciones del crédito sin prometer resultados.');
+  }
+  analysis.push('No se dispone de un registro específico de objeciones; no se presume que el cliente carezca de ellas.');
+  analysis.push('Este feedback no determina viabilidad, aprobación ni ahorro y no asigna un puntaje de calificación.');
+  nextSteps.push('Validar banco, saldo, modalidad y plazo con información actualizada del cliente.');
+  nextSteps.push(pending.length ? 'Completar los datos pendientes antes de emitir una recomendación.' : 'Corroborar los datos recopilados y resolver las preguntas del cliente.');
+  const sections = [details, interests, followUp, analysis, nextSteps,
+    [pending.length ? `Datos pendientes: ${pending.join('; ')}.` : 'Sin pendientes en los datos básicos de perfilamiento; falta su validación por el asesor.']];
+  return [FEEDBACK_HEADINGS[0], ...sections.map((lines, i) =>
+    `${FEEDBACK_HEADINGS[i + 1]}\n${lines.map(line => `• ${line}`).join('\n')}`)].join('\n\n');
 }
 const declineBooking = value => no(value) || /^(no gracias|ahora no|por ahora no|mas tarde|despues|prefiero no|no quiero agendar|no me agendes|dejalo pendiente|lo dejamos pendiente)[.!\s]*$/.test(normalize(value));
 function explicitBooking(value) {
@@ -433,7 +470,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             continue;
           }
           if (node.assignee?.accountType === 'Virtual') continue;
-          const fingerprint = createHash('sha256').update(JSON.stringify([node.id, phone,
+          const fingerprint = createHash('sha256').update(JSON.stringify([PROFILE_FEEDBACK_VERSION, node.id, phone,
             ...PROFILE.map(name => String(fields[name] ?? ''))])).digest('hex');
           if ((fields.crm_30x_profile_comment_hash === fingerprint && fields.crm_30x_codigo)
             || synchronizedProfiles.get(node.id) === fingerprint) continue;

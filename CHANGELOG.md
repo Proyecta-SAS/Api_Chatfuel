@@ -1,3 +1,11 @@
+# V1.0.9 - 2026-11-05
+
+- Conserva la vinculación por TELÉFONO CLIENTE (DEF) incorporada en V1.0.8.
+- Guarda el feedback completo en RESUMEN DE LA NEGOCIACION (DEF) y verifica su escritura.
+- Organiza el comentario del timeline con títulos en negrita, secciones y saltos de línea.
+- Incluye datos, intereses, análisis, próximos pasos y pendientes sin inventar conclusiones.
+- Deduplica comentarios y permite reintentar errores de guardado del resumen.
+
 # V1.0.8 - 2026-11-05
 
 - Vincula la negociación usando TELÉFONO CLIENTE (DEF) cuando esté informado.

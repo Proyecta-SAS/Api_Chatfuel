@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.8
+# Api_Chatfuel — V1.0.9
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -25,8 +25,13 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - Persiste la reserva pendiente antes de llamar a Bitrix; recupera respuestas perdidas sin crear otro evento.
 - Conserva la atención por IA, transferencias a humanos y recuperación de mensajes sin asignar.
 
-El perfil y resumen se guardan localmente. Una negociación registrada recibe su
-resumen en Bitrix con deduplicación. No se modifican las preguntas ni el scoring
+El perfil y resumen se guardan localmente. Una negociación registrada recibe el
+feedback completo en `UF_CRM_1646852109830` (RESUMEN DE LA NEGOCIACION (DEF)) y un
+comentario en el timeline con títulos en negrita, saltos de línea y secciones.
+Incluye hechos recopilados, intereses, contexto, análisis, próximos pasos y datos
+por confirmar; se basa en las respuestas registradas y no inventa objeciones ni resultados.
+Se comprueba la escritura del resumen y se deduplican comentarios idénticos.
+No se modifican las preguntas ni el scoring
 del motor original; el nuevo scoring de 0 a 100 sigue fuera de alcance.
 
 ## Ejecutar
@@ -85,7 +90,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.8"` y
+Después del push, `/health` debe indicar `version: "1.0.9"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 
