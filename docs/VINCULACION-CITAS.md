@@ -1,4 +1,11 @@
-# Agenda propia y vinculación — V1.0.10
+# Agenda propia y vinculación — V1.0.11
+
+V1.0.11 guarda el inicio confirmado en **FECHA Y HORA ASESORIA (DEF)**
+(`UF_CRM_1726241234`, tipo `datetime`). Lo envía con zona horaria explícita y
+verifica el instante leído, aunque Bitrix lo devuelva con otro desplazamiento.
+La fecha se actualiza junto con etapa y responsable después de persistir y
+verificar el evento. Un fallo se reintenta desde la reserva existente. Si una
+persona cambió la fecha durante la espera, se conserva y se solicita revisión.
 
 Desde V1.0.9 las nuevas llamadas duran 30 minutos. La consulta de huecos,
 validación de solapamientos, creación de evento y confirmación usan esa duración.

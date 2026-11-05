@@ -1,3 +1,9 @@
+# V1.0.11 - 2026-11-05
+
+- Guarda FECHA Y HORA ASESORIA (DEF) con el inicio de la cita confirmada en Bitrix.
+- Verifica fecha, etapa y responsable; recupera fallos sin crear otra reserva.
+- Conserva cambios manuales de fecha durante un reintento y compara zonas horarias por el instante real.
+
 # V1.0.10 - 2026-11-05
 
 - Integra la agenda de 30 minutos de V1.0.9 con el resumen y feedback.

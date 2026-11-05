@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { createSchedulingService, readAdvisors } from '../src/calendar/service.js';
+import { createSchedulingService, readAdvisors, APPOINTMENT_DATE_FIELD } from '../src/calendar/service.js';
 import { createDatabase } from '../src/database.js';
 import { createHandler } from '../src/connector.mjs';
 import { importCalendar } from '../scripts/import-calendar.mjs';
@@ -48,6 +48,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   let responsible='99', ignoreResponsible=false, blockedOwner=null, eventOverride={}, time=NOW;
   let registered = {id_negociacion:'777'};
   let summary = '', ignoreSummary = false;
+  let appointmentDate = '', ignoreAppointmentDate = false;
   const calls=[], events=[];
   const database={scheduling:store,findClienteByPhone:async()=>registered};
   const bitrix={call:async(method,params)=>{
@@ -63,10 +64,11 @@ function fixture(store = memoryStore(), pool = advisors) {
       if(failCreate) throw new Error('Lost response');
       return id;
     }
-    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',[DEAL_SUMMARY_FIELD]:summary};
+    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
     if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');
       if(params.fields.STAGE_ID) stage=params.fields.STAGE_ID;
       if(!ignoreSummary && Object.hasOwn(params.fields,DEAL_SUMMARY_FIELD)) summary=params.fields[DEAL_SUMMARY_FIELD];
+      if(!ignoreAppointmentDate && Object.hasOwn(params.fields,APPOINTMENT_DATE_FIELD)) appointmentDate=params.fields[APPOINTMENT_DATE_FIELD];
       if(!ignoreResponsible && params.fields.ASSIGNED_BY_ID) responsible=String(params.fields.ASSIGNED_BY_ID);return true; }
     if(method==='crm.timeline.comment.add') return '600';
     throw new Error('Unexpected method: '+method);
@@ -77,11 +79,40 @@ function fixture(store = memoryStore(), pool = advisors) {
     const result=await service.upsert({phone,contactName:'Prueba simulada'});return result.clientId;
   },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
   get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},
+  get appointmentDate(){return appointmentDate;},set appointmentDate(v){appointmentDate=v;},set ignoreAppointmentDate(v){ignoreAppointmentDate=v;},
   set ignoreResponsible(v){ignoreResponsible=v;},set blockedOwner(v){blockedOwner=v;},set eventOverride(v){eventOverride=v;},
   get stage(){return stage;},set stage(v){stage=v;},set category(v){category=v;},set failCreate(v){failCreate=v;},
   set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
+  await t.test('reintenta la fecha de asesoría si Bitrix no la guardó, sin duplicar citas',async()=>{
+    const f=await create();const code=await f.profile();f.ignoreAppointmentDate=true;
+    const result=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'date-retry');
+    assert.equal(result.data.status,'confirmed');assert.equal(result.data.crmSync.status,'pending');
+    assert.equal(result.data.crmSync.lastError,'APPOINTMENT_DATE_NOT_CONFIRMED');
+    f.ignoreAppointmentDate=false;f.advance(31_000);await f.restart().retryPendingCrm();
+    const saved=await f.store.getAppointment(result.data.appointmentId);
+    assert.equal(saved.response.crmSync.status,'completed');
+    assert.equal(Date.parse(f.appointmentDate),Date.parse(request.startAt));assert.equal(f.events.length,1);
+  });
+  await t.test('una fecha equivalente con otra zona horaria ya está sincronizada',async()=>{
+    const f=await create();const code=await f.profile();f.ignoreAppointmentDate=true;
+    const result=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'date-offset');
+    f.appointmentDate='2026-11-03T17:00:00+03:00';
+    const writes=f.calls.filter(c=>c.method==='crm.deal.update').length;
+    f.advance(31_000);await f.service.retryPendingCrm();
+    assert.equal((await f.store.getAppointment(result.data.appointmentId)).response.crmSync.status,'completed');
+    assert.equal(f.calls.filter(c=>c.method==='crm.deal.update').length,writes);assert.equal(f.events.length,1);
+  });
+  await t.test('respeta una fecha de asesoría cambiada por una persona durante el reintento',async()=>{
+    const f=await create();const code=await f.profile();f.failStage=true;
+    const result=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'date-manual');
+    f.failStage=false;f.appointmentDate='2026-11-04T10:00:00-05:00';f.advance(31_000);
+    await f.service.retryPendingCrm();
+    const sync=(await f.store.getAppointment(result.data.appointmentId)).response.crmSync;
+    assert.equal(sync.reviewRequired,true);assert.equal(sync.lastError,'DEAL_APPOINTMENT_DATE_CHANGED');
+    assert.equal(f.appointmentDate,'2026-11-04T10:00:00-05:00');assert.equal(f.events.length,1);
+  });
   await t.test('horarios consultados en Bitrix; ausencia de calendario falla cerrada',async()=>{
     const f=await create();const code=await f.profile();
     const body={dateFrom:'2026-11-03',dateTo:'2026-11-03',fromTime:'08:30',toTime:'12:00'};
@@ -94,7 +125,8 @@ async function scenarios(t, create) {
     const result=await f.service.book(code,body,'booking-1');
     assert.equal(result.data.crmSync.status,'completed');assert.equal(f.stage,'C370:EXECUTING');
     assert.equal(f.responsible,'10');assert.equal(result.data.crmSync.responsibleId,'10');
-    assert.deepEqual(f.calls.find(c=>c.method==='crm.deal.update').params.fields,{STAGE_ID:'C370:EXECUTING',ASSIGNED_BY_ID:'10'});
+    assert.deepEqual(f.calls.find(c=>c.method==='crm.deal.update').params.fields,{STAGE_ID:'C370:EXECUTING',ASSIGNED_BY_ID:'10',[APPOINTMENT_DATE_FIELD]:'2026-11-03T14:00:00.000Z'});
+    assert.equal(Date.parse(f.appointmentDate),Date.parse(request.startAt));
     const add=f.calls.find(c=>c.method==='calendar.event.add');assert.deepEqual(add.params.crm_fields,['D_777']);
     assert.equal(Date.parse(add.params.to)-Date.parse(add.params.from),1_800_000);
     assert.equal((await f.store.getByKey('booking-1')).status,'confirmed');

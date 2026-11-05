@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 
-export const RELEASE_VERSION = '1.0.10';
+export const RELEASE_VERSION = '1.0.11';
 
 const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',
