@@ -137,10 +137,14 @@ test('al entrar a agenda conserva la corrección real y no repite tiempos financ
 test('la agenda habitual no reinicia el perfil por capturas pendientes y confirma una llamada',async()=>{
   const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'}});
   const start=await f.request('start');assert.match(start.message,/mañana o en la tarde/);
-  await f.request('step','mañana');await f.request('step','1');await f.request('step','1');
+  const days=await f.request('step','mañana'),times=await f.request('step','1'),confirmation=await f.request('step','1');
+  for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares/);
   const result=await f.request('step','sí');
   assert.match(result.message,/llamada quedó agendada/);assert.match(result.message,/30 minutos/);
-  assert.doesNotMatch(result.message,/Zoom|PDF|titulares|Tatiana/);assert.equal(f.bookings().length,1);
+  assert.match(result.message,/La asesoría inicial es gratuita/);
+  assert.match(result.message,/extracto bancario COMPLETO de tu crédito en PDF/);
+  assert.match(result.message,/todos los titulares y quienes tomarán la decisión/);
+  assert.doesNotMatch(result.message,/Zoom|Tatiana/);assert.equal(f.bookings().length,1);
 });
 
 test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{
