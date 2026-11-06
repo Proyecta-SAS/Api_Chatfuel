@@ -140,11 +140,13 @@ test('la agenda habitual no reinicia el perfil por capturas pendientes y confirm
   const days=await f.request('step','mañana'),times=await f.request('step','1'),confirmation=await f.request('step','1');
   for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares/);
   const result=await f.request('step','sí');
-  assert.match(result.message,/llamada quedó agendada/);assert.match(result.message,/30 minutos/);
+  assert.match(result.message,/cita de asesoría virtual por Zoom quedó agendada/);assert.match(result.message,/30 minutos/);
+  assert.match(start.message,/debes conectarte/);assert.match(confirmation.message,/puedes conectarte/);
+  assert.match(result.message,/conectarte puntualmente/);
   assert.match(result.message,/La asesoría inicial es gratuita/);
   assert.match(result.message,/extracto bancario COMPLETO de tu crédito en PDF/);
   assert.match(result.message,/todos los titulares y quienes tomarán la decisión/);
-  assert.doesNotMatch(result.message,/Zoom|Tatiana/);assert.equal(f.bookings().length,1);
+  assert.doesNotMatch(result.message,/Tatiana|https?:\/\//);assert.equal(f.bookings().length,1);
 });
 
 test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{

@@ -3,11 +3,11 @@
   "edit": [
     {
       "question": "9. ¿Puedo hablar con un asesor o solicitar una llamada?",
-      "answer": "Sí, puedes coordinar tu llamada de 30 minutos desde este mismo chat. La agenda externa consulta horarios reales en Bitrix y solo confirma una reserva después de que elijas y confirmes un horario. Las asesorías se coordinan de lunes a viernes entre 8:30 a. m. y 5:00 p. m., hora de Colombia; no hay citas nocturnas ni de fin de semana. Si esa franja no te sirve hoy, podemos revisar otro día. Antes de agendar deben estar completos los datos del filtro inicial."
+      "answer": "Sí, puedes coordinar tu cita de asesoría virtual de 30 minutos por Zoom desde este mismo chat. La agenda externa consulta horarios reales en Bitrix y solo confirma una reserva después de que elijas y confirmes un horario. Las asesorías se coordinan de lunes a viernes entre 8:30 a. m. y 5:00 p. m., hora de Colombia; no hay citas nocturnas ni de fin de semana. Si esa franja no te sirve hoy, podemos revisar otro día. Antes de agendar deben estar completos los datos del filtro inicial. Es una reunión a la que debes conectarte en el horario elegido, no una llamada telefónica."
     },
     {
       "question": "7. ¿Qué información necesitan para comenzar la revisión de mi crédito hipotecario?",
-      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una llamada de 30 minutos con un asesor. Nombre y ciudad se completan solo si faltan al agendar."
+      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una cita de asesoría virtual de 30 minutos por Zoom con un asesor. Nombre y ciudad se completan solo si faltan al agendar. Es una reunión a la que debes conectarte en el horario elegido, no una llamada telefónica."
     },
     {
       "question": "5. ¿El estudio inicial es gratuito?",
@@ -51,7 +51,7 @@
     },
     {
       "question": "RCH: Cómo se realiza la orientación inicial",
-      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una llamada de 30 minutos con un asesor. Nombre y ciudad se completan solo si faltan al agendar."
+      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una cita de asesoría virtual de 30 minutos por Zoom con un asesor. Nombre y ciudad se completan solo si faltan al agendar. Es una reunión a la que debes conectarte en el horario elegido, no una llamada telefónica."
     },
     {
       "question": "RCH: Reducir tiempo no significa bajar la cuota",

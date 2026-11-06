@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.20';
+export const RELEASE_VERSION = '1.0.21';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -353,7 +353,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function askPeriod(contactId, clientCode, { date, intro = '' } = {}) {
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
-      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu llamada de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la llamada en la mañana o en la tarde?`);
+      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu cita de asesoría virtual de 30 minutos por Zoom con un asesor 🗓️. Es una reunión a la que debes conectarte en el horario elegido.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} tu cita en la mañana o en la tarde?`);
   }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
@@ -364,7 +364,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const days = [...new Set(slots.map(slot => dateAt(slot.startAt)))].slice(0, 2);
     if (!days.length) return askPeriod(contactId, clientCode, { intro: 'No encontré días libres en esa franja. Podemos revisar la otra franja o solicitar ayuda a un asesor.' });
     return reply(contactId, { step: 'day', clientCode, days, ...window },
-      `🗓️ ¿Qué día prefieres para el contacto con un asesor?\n\n${days.map((date, index) => `${index + 1}. ${dayLabel(date)}`).join('\n')}\n\nPuedes responder con el día o con el número.`);
+      `🗓️ ¿Qué día prefieres para tu cita de asesoría virtual por Zoom con un asesor?\n\n${days.map((date, index) => `${index + 1}. ${dayLabel(date)}`).join('\n')}\n\nPuedes responder con el día o con el número.`);
   }
   async function offerTimes(contactId, state, date, excluded = []) {
     const window = { fromTime: state.fromTime || '08:30', toTime: state.toTime || '17:00' };
@@ -374,7 +374,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       excludedStarts: [...new Set([...excluded, ...slots.map(slot => slot.startAt)])] };
     if (!slots.length) return reply(contactId, context, 'No encontré otros horarios libres en ese día y franja. ¿Prefieres otro día u otra franja?');
     return reply(contactId, context,
-      `🕒 Estos son los horarios libres para tu llamada de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
+      `🕒 Estos son los horarios libres para tu cita de asesoría virtual de 30 minutos por Zoom el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿En cuál puedes conectarte? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
   }
   async function options(contactId, clientCode, excluded = [], context = {}) {
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
@@ -578,7 +578,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const { contactId, operation } = body;
     // Preview sessions cannot create CRM leads or appointments.
     if (typeof contactId === 'string' && /^(?:wa_)?cfPreview:/.test(contactId)) return json({
-      message: 'Este es un chat de prueba. La conexión de agenda respondió; no se creó ninguna negociación ni cita real. En WhatsApp la asistente ofrece organizar la llamada y consulta los horarios al continuar.', done: 'si', human: 'no' });
+      message: 'Este es un chat de prueba. La conexión de agenda respondió; no se creó ninguna negociación ni cita real. En WhatsApp la asistente ofrece coordinar una cita de asesoría virtual por Zoom y consulta los horarios al continuar.', done: 'si', human: 'no' });
     if (typeof contactId !== 'string' || !/^wa_\d+_\d+_\d{8,15}$/.test(contactId)
       || !['start', 'step'].includes(operation)) return json({ error: 'INVALID_CONTACT_OR_OPERATION' }, 422);
     let bookingMayExist = true;
@@ -653,7 +653,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         return profileOrOptions(contactId, phone, { ...fields, obligacion_vivienda_activa: 'no' });
       }
       if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { step: 'cancelled', clientCode: state.clientCode },
-        'Dejamos la llamada pendiente. No reservé ninguna cita; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
+        'Dejamos la cita pendiente. No reservé ningún horario; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
       if(['period','day','choose','confirm'].includes(state.step)) {
         const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
       }
@@ -717,7 +717,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         if (index === null) return reply(contactId, state, '¿Cuál de los horarios ofrecidos te sirve? Puedes responder con la hora, el número o decir, por ejemplo, «la primera». También podemos revisar otro día u otra franja.');
         const slot = state.slots[index];
         return reply(contactId, { ...state, step: 'confirm', slot },
-          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una llamada de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
+          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para tu cita de asesoría virtual de 30 minutos por Zoom. ¿Confirmas que puedes conectarte y que reserve ese horario? Responde SÍ o CANCELAR.`);
       }
       if (state.step === 'confirm' || state.step === 'booking') {
         if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
@@ -763,7 +763,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu llamada quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos.\n\nLa asesoría inicial es gratuita y, para atenderla, es indispensable tener el extracto bancario COMPLETO de tu crédito en PDF y compartirlo por el canal autorizado. También deben estar todos los titulares y quienes tomarán la decisión.\n\nTe esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
+          `✅ Tu cita de asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos. 💻 Recuerda conectarte puntualmente a tu cita.\n\nLa asesoría inicial es gratuita y, para atenderla, es indispensable tener el extracto bancario COMPLETO de tu crédito en PDF y compartirlo por el canal autorizado. También deben estar todos los titulares y quienes tomarán la decisión.\n\nTe esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',
@@ -787,7 +787,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           throw error;
         }
       }
-      return reply(contactId, { step: 'restart' }, 'Puedes pedirme que volvamos a revisar los horarios para la llamada.', { done: true });
+      return reply(contactId, { step: 'restart' }, 'Puedes pedirme que volvamos a revisar los horarios para tu cita de asesoría virtual por Zoom.', { done: true });
     };
     try { return await run(); }
     catch (error) {

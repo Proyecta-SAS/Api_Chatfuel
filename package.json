@@ -1,6 +1,6 @@
 {
   "name": "api-chatfuel",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "private": true,
   "type": "module",
   "description": "Chatfuel con registro MySQL y agenda propia conectada directamente a Bitrix24.",
