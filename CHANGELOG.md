@@ -1,3 +1,8 @@
+# V1.0.15 - 2026-11-06
+
+- Muestra «reducción de crédito hipotecario» en lugar de la sigla interna en mensajes de descarte, explicaciones y FAQ del cliente.
+- Conserva las reglas de elegibilidad y la asignación interna de citas.
+
 # V1.0.14 - 2026-11-06
 
 - Usa «con un asesor» en invitaciones, coordinación, confirmaciones y FAQ del cliente.

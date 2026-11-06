@@ -52,11 +52,11 @@ export function evaluateRchEligibility(fields = {}, { requireActive = false } = 
 
 export function eligibilityMessage(result) {
   const declines = {
-    PRODUCT_NOT_ELIGIBLE:'Gracias por tu interés 😊. Esta revisión es únicamente para créditos hipotecarios o leasing habitacional activos. El producto que nos indicas no corresponde a este proceso de RCH.',
+    PRODUCT_NOT_ELIGIBLE:'Gracias por tu interés 😊. Esta revisión es únicamente para créditos hipotecarios o leasing habitacional activos. El producto que nos indicas no corresponde a este proceso de reducción de crédito hipotecario.',
     BANK_EXCLUDED:'¡Gracias por la información! En este momento, por las condiciones de nuestro proceso, no podemos realizar la gestión de Reducción de Crédito Hipotecario con esta entidad financiera. Agradecemos tu interés en Avanzar Soluciones Financieras 😊.',
     NEGATIVE_REPORTS:'Gracias por compartirnos esta información. En este momento, debido a los reportes negativos que nos indicas, no es posible avanzar con nuestro proceso de Reducción de Crédito Hipotecario. Agradecemos tu interés y esperamos poder ayudarte más adelante.',
     NO_PAYMENT_CAPACITY:'Gracias por tu respuesta 😊. Para nuestro proceso de Reducción de Crédito Hipotecario es necesario poder realizar un esfuerzo adicional en la cuota mensual. Como actualmente no tienes esa posibilidad, no podemos avanzar con esta solicitud por ahora.',
-    SHORT_REMAINING_TERM:'Gracias por la información 😊. Con el plazo inicial y el tiempo que llevas pagando, identificamos que te quedan cinco años o menos. Por las condiciones de nuestro proceso, no podemos avanzar con RCH en este momento.',
+    SHORT_REMAINING_TERM:'Gracias por la información 😊. Con el plazo inicial y el tiempo que llevas pagando, identificamos que te quedan cinco años o menos. Por las condiciones de nuestro proceso, no podemos avanzar con la reducción de crédito hipotecario en este momento.',
   };
   if (result.status === 'NO_APLICA') return declines[result.reason];
   if (result.reason === 'INCONSISTENT_TERM') return 'Quiero verificar los tiempos para no darte una orientación equivocada 😊. ¿A cuántos años tomaste originalmente tu crédito?';

@@ -3,7 +3,7 @@ import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileS
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 
-export const RELEASE_VERSION = '1.0.14';
+export const RELEASE_VERSION = '1.0.15';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -643,7 +643,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         return profileOrOptions(contactId, phone, { ...fields, [name]: answer });
       }
       if (state.step === 'active') {
-        if (!yes(answer)) return reply(contactId, state, 'Para esta agenda de RCH necesito confirmar si tienes crédito hipotecario o leasing habitacional vigente. Responde SÍ o NO.');
+        if (!yes(answer)) return reply(contactId, state, 'Para esta agenda de reducción de crédito hipotecario necesito confirmar si tienes crédito hipotecario o leasing habitacional vigente. Responde SÍ o NO.');
         await setAttributes(contactId, { obligacion_vivienda_activa: 'si', linea_interes: 'RCH' });
         return profileOrOptions(contactId, phone, { ...fields, obligacion_vivienda_activa: 'si' });
       }

@@ -1,9 +1,9 @@
 {
-  "version": "1.0.14",
+  "version": "1.0.15",
   "component": "api-chatfuel",
   "runtime": "node24",
   "source_repository": "https://github.com/Proyecta-SAS/Api_Chatfuel",
-  "connector_sha256": "deb1793e5a3eed579d77217ec2ce854658d2a9d7ecf740c62beb0e744b2c7a7c",
+  "connector_sha256": "dfb4c5dd0b9f4462cb095b85f61be5476ad555b1e875aa38138ce1981523e18f",
   "calendar_provider": "bitrix",
   "calendar_storage": "mysql",
   "calendar_independent": true,
