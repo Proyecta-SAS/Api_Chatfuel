@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 
-export const RELEASE_VERSION = '1.0.11';
+export const RELEASE_VERSION = '1.0.12';
 
 const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',
@@ -711,10 +711,13 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             ...(bookingDealId ? {bitrix_responsable_id:booking.crmSync?.responsibleId || '',
               bitrix_responsable_sync:booking.crmSync?.reviewRequired ? 'revision_requerida' : crmSyncPending ? 'pendiente' : 'completado'} : {}) } });
         } catch (error) {
-          if (error.message === 'SLOT_UNAVAILABLE') {
+          if (error.message === 'SLOT_UNAVAILABLE' || error.message === 'INVALID_ADVISOR') {
             await setAttributes(contactId, { bitrix_reserva_pendiente: 'no' });
             bookingMayExist = false;
-            return options(contactId, state.clientCode, state.excludedStarts || [state.slot.startAt], { ...state, date: state.date || dateAt(state.slot.startAt) });
+            // A removed advisor invalidates the old offer, not necessarily its
+            // time: it may still be free in the currently enabled calendar.
+            const excluded = error.message === 'INVALID_ADVISOR' ? [] : state.excludedStarts || [state.slot.startAt];
+            return options(contactId, state.clientCode, excluded, { ...state, date: state.date || dateAt(state.slot.startAt) });
           }
           throw error;
         }

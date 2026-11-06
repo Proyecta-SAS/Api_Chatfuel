@@ -11,6 +11,14 @@
 
 ## Construcción y despliegue
 
+Desde el 6 de noviembre de 2026, `APPOINTMENT_ADVISORS_JSON` contiene únicamente
+a Jhadzurin Tatiana Chilito (usuario Bitrix `19922`). Laura y Joan no participan
+en nuevas consultas ni reservas de Chatfuel hasta que el usuario indique agregarlos.
+Si Tatiana no tiene disponibilidad, se consultan otras fechas; no se asigna a otro asesor.
+La lista se configura en Railway y no se modifica la configuración de DalIA.
+Las opciones previas de un asesor retirado se reemplazan por disponibilidad vigente
+antes de pedir una nueva confirmación; no se crean reservas con esas opciones.
+
 El cambio de origen requiere subir primero la versión actual a `Proyecta-SAS/Api_Chatfuel`.
 Después, conectar ese repositorio y la rama `main` en el servicio existente y
 verificar el disparador automático. La configuración local de Git no cambia

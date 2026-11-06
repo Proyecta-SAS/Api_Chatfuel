@@ -1,3 +1,9 @@
+# V1.0.12 - 2026-11-06
+
+- Limita las nuevas citas de Chatfuel a Tatiana Chilito mediante el grupo configurado en Railway.
+- Si una opción anterior pertenecía a un asesor retirado, consulta horarios nuevos y pide otra elección y confirmación.
+- Conserva las citas existentes y no habilita asesores adicionales como respaldo.
+
 # V1.0.11 - 2026-11-05
 
 - Guarda FECHA Y HORA ASESORIA (DEF) con el inicio de la cita confirmada en Bitrix.

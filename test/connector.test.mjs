@@ -76,6 +76,10 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
       } });
     }
     if (url.endsWith('/appointments')) {
+      if (bookingError === 'advisor-removed' && !failed) {
+        failed = true;
+        throw Object.assign(new Error('INVALID_ADVISOR'), { retryable: false });
+      }
       if (bookingError === 'conflict' && !failed) {
         failed = true;
         return Response.json({ ok: false, error: { code: 'SLOT_UNAVAILABLE' } }, { status: 409 });
@@ -349,6 +353,22 @@ test('conflicting slot refreshes real availability and requires a new selection'
   assert.match(result.message, /horarios/);
   assert.equal(f.fields.bitrix_reserva_pendiente, 'no');
   assert.equal(f.bookings().length, 1);
+});
+
+test('un asesor retirado actualiza las opciones sin reservar ni dejar una reserva incierta',async()=>{
+  const availabilitySlots=SLOTS.map(slot=>({...slot}));
+  const f=fixture({availabilitySlots,bookingError:'advisor-removed'});
+  await prepareOptions(f);await f.request('step','1');
+  for(const slot of availabilitySlots)slot.advisorId='tatiana';
+  const response=await f.request('step','sí');
+  assert.equal(response.error,undefined);assert.match(response.message,/horarios libres/);
+  assert.equal(f.fields.bitrix_reserva_pendiente,'no');
+  const state=JSON.parse(Buffer.from(response.state.split('.')[0],'base64url'));
+  assert.ok(state.slots.length);assert.ok(state.slots.every(slot=>slot.advisorId==='tatiana'));
+  assert.equal(f.bookings().length,1);
+  await f.request('step','1');assert.equal(f.bookings().length,1);
+  assert.match((await f.request('step','sí')).message,/quedó agendada/);
+  assert.equal(f.bookings().at(-1).payload.advisorId,'tatiana');
 });
 
 test('human handoff creates a negotiation once and updates the same code when the profile changes', async () => {

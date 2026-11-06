@@ -313,8 +313,13 @@ test('configuración rechaza asesores duplicados o incompletos',()=>{
 test('asigna a Tatiana usando el usuario del evento realmente creado',async()=>{
   const tatiana=[{id:'tatiana',name:'Asesora de prueba',bitrixUserId:'19922'}];
   const f=fixture(undefined,tatiana);const code=await f.profile();
+  const options=await f.service.availability(code,{dateFrom:'2026-11-03',dateTo:'2026-11-03',fromTime:'09:00',toTime:'10:00'});
+  assert.ok(options.data.slots.length);assert.ok(options.data.slots.every(slot=>slot.advisorId==='tatiana'));
+  await assert.rejects(f.service.book(code,request,'retired-advisor'),/INVALID_ADVISOR/);
+  assert.equal(f.events.length,0);
   const result=await f.service.book(code,{...request,advisorId:'tatiana',bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'tatiana');
   assert.equal(result.data.crmSync.responsibleId,'19922');assert.equal(f.responsible,'19922');
+  assert.ok(f.events.every(event=>event.OWNER_ID==='19922'));
 });
 
 test('el responsable corresponde al asesor disponible al confirmar, no al ofrecido antes',async()=>{
