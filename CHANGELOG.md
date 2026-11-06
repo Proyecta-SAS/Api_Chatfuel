@@ -1,3 +1,8 @@
+# V1.0.14 - 2026-11-06
+
+- Usa «con un asesor» en invitaciones, coordinación, confirmaciones y FAQ del cliente.
+- Conserva a Tatiana Chilito como única asesora habilitada internamente para nuevas citas.
+
 # V1.0.13 - 2026-11-06
 
 - Aplica la guía RCH aprobada: banco, reportes negativos, capacidad de aumentar cuota, plazo original y tiempo pagando.

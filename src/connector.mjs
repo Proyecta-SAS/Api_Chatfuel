@@ -3,7 +3,7 @@ import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileS
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 
-export const RELEASE_VERSION = '1.0.13';
+export const RELEASE_VERSION = '1.0.14';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -327,7 +327,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function askPeriod(contactId, clientCode, { date, intro = '' } = {}) {
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
-      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu asesoría virtual de 30 minutos con Tatiana Chilito 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la asesoría en la mañana o en la tarde?`);
+      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu asesoría virtual de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la asesoría en la mañana o en la tarde?`);
   }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
@@ -730,7 +730,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con ${booking.advisor?.name || 'la especialista asignada'}. Duración: ${durationMinutes} minutos.\n\n${env.RCH_ZOOM_URL ? `Enlace de Zoom: ${env.RCH_ZOOM_URL}` : 'El enlace de Zoom queda pendiente de coordinación con el equipo.'}${env.RCH_ADVISOR_CONTACT_PHONE ? `\n📞 Contacto de la especialista: ${env.RCH_ADVISOR_CONTACT_PHONE}` : ''}\n\nPara esta asesoría gratuita es indispensable tener disponible el extracto bancario completo de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Sin ese soporte no se puede realizar el análisis financiero ni atender la asesoría.\n\nDeben estar presentes todos los titulares del crédito y quienes participarán en la decisión. ¡Te esperamos! 😊`,
+          `✅ Tu asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos.\n\n${env.RCH_ZOOM_URL ? `Enlace de Zoom: ${env.RCH_ZOOM_URL}` : 'El enlace de Zoom queda pendiente de coordinación con el equipo.'}${env.RCH_ADVISOR_CONTACT_PHONE ? `\n📞 Contacto de la especialista: ${env.RCH_ADVISOR_CONTACT_PHONE}` : ''}\n\nPara esta asesoría gratuita es indispensable tener disponible el extracto bancario completo de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Sin ese soporte no se puede realizar el análisis financiero ni atender la asesoría.\n\nDeben estar presentes todos los titulares del crédito y quienes participarán en la decisión. ¡Te esperamos! 😊`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',
