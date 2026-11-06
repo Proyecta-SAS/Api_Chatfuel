@@ -7,6 +7,7 @@ import { requireBitrixEventId } from './appointmentBooking.js';
 import { confirmedCalendarOwner } from './confirmedEvent.js';
 import { DEAL_SUMMARY_FIELD, timelineSummary } from './profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
+import { evaluateRchEligibility } from './rchEligibility.js';
 
 export const APPOINTMENT_STAGE = 'C370:EXECUTING';
 export const APPOINTMENT_DATE_FIELD = 'UF_CRM_1726241234';
@@ -158,6 +159,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
   const resultFor = (row, duplicate, crmSync = row.response?.crmSync) => ({ ok: true, data: {
     appointmentId: row.id, bitrixEventId: row.bitrixEventId, startAt: row.startAt, endAt: row.endAt,
     status: 'confirmed', duplicate, crmSync,
+    advisor:{name:advisors.find(a=>a.id===row.advisorId)?.name||'la especialista asignada',bitrixUserId:row.bitrixUserId},
   } });
   async function recoverPending(db, row) {
     // A lost response is NOT permission to create another event. Recover only
@@ -206,6 +208,9 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         || parsed.minutes < 510 || parsed.minutes + duration > 1020) fail('INVALID_START');
       const profile = await db.getProfile(code);
       if (!profile) fail('LEAD_NOT_FOUND');
+      const eligibility=evaluateRchEligibility(profile.data?.answers,{requireActive:true});
+      if(eligibility.status!=='APLICA')throw Object.assign(new Error(eligibility.status==='NO_APLICA'?'RCH_NOT_ELIGIBLE':'RCH_PROFILE_INCOMPLETE'),
+        {code:eligibility.status==='NO_APLICA'?'RCH_NOT_ELIGIBLE':'RCH_PROFILE_INCOMPLETE',retryable:false,eligibility});
       if (!advisors.some(a => a.id === body.advisorId)) fail('INVALID_ADVISOR');
       let originalStage = null, originalResponsible = null, originalAppointmentDate = null;
       if (requestedDeal) {

@@ -26,7 +26,8 @@ function memoryStore() {
       profiles.set(profile.clientCode,profile);return profile;
     },
     async getProfile(code) { return profiles.get(code); },
-    async saveProfile(profile, body) { profiles.set(profile.clientCode,{...profile,name:body.contactName||profile.name,data:body}); },
+    async saveProfile(profile, body) { profiles.set(profile.clientCode,{...profile,name:body.contactName||profile.name,
+      data:{...profile.data,...body,answers:{...profile.data?.answers,...body.answers}}}); },
     async getByKey(key) { return structuredClone([...bookings.values()].find(b=>b.key===key)); },
     async getAppointment(id) { return structuredClone(bookings.get(id)); },
     async reservations() { return [...bookings.values()].filter(b=>['pending','confirmed'].includes(b.status)); },
@@ -76,7 +77,8 @@ function fixture(store = memoryStore(), pool = advisors) {
   const restart=()=>createSchedulingService({database,bitrix,advisors:pool,now:()=>time});
   const service=restart();
   return {service,database,store,calls,events,async profile(phone='573000000001'){
-    const result=await service.upsert({phone,contactName:'Prueba simulada'});return result.clientId;
+    const result=await service.upsert({phone,contactName:'Prueba simulada',answers:{rch_banco:'Bancolombia',
+      rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años',obligacion_vivienda_activa:'si'}});return result.clientId;
   },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
   get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},
   get appointmentDate(){return appointmentDate;},set appointmentDate(v){appointmentDate=v;},set ignoreAppointmentDate(v){ignoreAppointmentDate=v;},
@@ -85,6 +87,15 @@ function fixture(store = memoryStore(), pool = advisors) {
   set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
+  await t.test('la agenda rechaza casos descartados e incompletos antes de crear el evento',async()=>{
+    for(const patch of [{rch_banco:'BBVA'},{rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'},
+      {rch_tiempo_pagando:'15 años'},{rch_plazo_inicial:''}]){
+      const f=await create();const code=await f.profile();const current=await f.store.getProfile(code);
+      await f.service.upsert({phone:current.phone,answers:{...current.data.answers,...patch}});
+      await assert.rejects(f.service.book(code,request,'blocked-profile'),/RCH_NOT_ELIGIBLE|RCH_PROFILE_INCOMPLETE/);
+      assert.equal(f.events.length,0);
+    }
+  });
   await t.test('reintenta la fecha de asesoría si Bitrix no la guardó, sin duplicar citas',async()=>{
     const f=await create();const code=await f.profile();f.ignoreAppointmentDate=true;
     const result=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'date-retry');
@@ -274,7 +285,8 @@ async function scenarios(t, create) {
   });
   await t.test('feedback antes y después de reservar conserva evento, vínculo, responsable e idempotencia',async()=>{
     const f=await create();
-    const profile={phone:'573000000001',summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDATOS RECOPILADOS\nPerfil de prueba'};
+    const profile={phone:'573000000001',summary:'RESUMEN Y FEEDBACK DE DALIA\n\nDATOS RECOPILADOS\nPerfil de prueba',
+      answers:{rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años',obligacion_vivienda_activa:'si'}};
     const {clientId}=await f.service.upsert(profile);
     const body={...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'};
     const booking=await f.service.book(clientId,body,'feedback-booking');
@@ -334,7 +346,8 @@ test('Chatfuel recorre la agenda propia completa sin HTTP hacia otro CRM',async(
   let turnNow=NOW;
   const f=fixture();
   const id='wa_999999999999_888888888888_573000000001';
-  const fields={nombre_completo:'Persona simulada',ciudad_municipio:'Bogotá',obligacion_vivienda_activa:'si'};
+  const fields={nombre_completo:'Persona simulada',ciudad_municipio:'Bogotá',obligacion_vivienda_activa:'si',
+    rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años'};
   const secret='secreto-local-exclusivo-para-test-123456789';
   const handler=createHandler({database:f.database,scheduling:f.service,now:()=>turnNow,
     env:{CHATFUEL_BOT_ID:'mock',CHATFUEL_API_TOKEN:'mock',CHATFUEL_BOOKING_SECRET:secret},

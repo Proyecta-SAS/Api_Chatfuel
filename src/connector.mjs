@@ -1,10 +1,12 @@
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
+import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 
-export const RELEASE_VERSION = '1.0.12';
+export const RELEASE_VERSION = '1.0.13';
 
-const ATTR = ['nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
+const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
+  'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
   'tipo_obligacion', 'banco_entidad', 'estado_pago', 'necesidad_principal',
   'correo_contacto', 'anos_restantes', 'anos_pagados', 'numero_titulares',
   'puede_aumentar_cuota_mas_10', 'modalidad_pesos_uvr',
@@ -36,6 +38,7 @@ const profileText = value => {
 const declared = (fields, ...names) => names.map(name => profileText(fields[name])).find(value => value !== null) ?? null;
 
 export function profileComment(fields, { handoff = false, displayName = '' } = {}) {
+  const eligibility = evaluateRchEligibility(fields);
   const details = [];
   const pending = [];
   const name = declared(fields, 'nombre_completo');
@@ -57,7 +60,6 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
   const coverage = declared(fields, 'rch_frech');
   if (yes(coverage)) details.push('Declara tener cobertura de tasa Mi Casa Ya o FRECH.');
   else if (no(coverage)) details.push('Declara no tener cobertura de tasa Mi Casa Ya o FRECH.');
-  else pending.push('cobertura de tasa Mi Casa Ya o FRECH');
   const balance = declared(fields, 'rch_saldo_millones');
   const balanceEvidence = declared(fields, 'rch_saldo_evidencia');
   if (balance && /^\d+(?:[.,]\d+)?$/.test(balance)) {
@@ -70,10 +72,9 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
     pending.push('saldo pendiente en dinero por confirmar');
   } else if (balance) {
     details.push(`Saldo pendiente declarado en millones de pesos colombianos: ${balance}.`);
-  } else pending.push('saldo pendiente en dinero');
+  }
   const elapsed = declared(fields, 'rch_anos_pagando', 'anos_pagados');
   if (elapsed) details.push(`Tiempo que lleva pagando, en años: ${elapsed}.`);
-  else pending.push('tiempo que lleva pagando');
   const arrears = declared(fields, 'rch_cuotas_atrasadas');
   if (arrears !== null && /^\d+$/.test(arrears)) {
     const count = Number(arrears);
@@ -82,8 +83,17 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
   else {
     const paymentStatus = declared(fields, 'estado_pago');
     if (paymentStatus) details.push(`Estado de pago declarado: ${paymentStatus}.`);
-    if (!paymentStatus || !/^(?:al dia|current)$/i.test(normalize(paymentStatus))) pending.push('número de cuotas vencidas sin pagar');
   }
+  for (const [field,label] of [['rch_reportes_negativos','Reportes negativos declarados'],
+    ['rch_puede_aumentar_cuota','Posibilidad de aumentar un poco la cuota'],
+    ['rch_plazo_inicial','Plazo original del crédito'],['rch_tiempo_pagando','Tiempo que lleva pagando']]) {
+    const value=declared(fields,field);if(value)details.push(`${label}: ${value}.`);
+  }
+  if(eligibility.remainingMonths!==null)details.push(`Tiempo restante calculado: ${eligibility.remainingMonths} meses.`);
+  const eligibilityLabels={rch_banco:'banco actual',rch_reportes_negativos:'reportes negativos en centrales',
+    rch_puede_aumentar_cuota:'posibilidad de aumentar la cuota',rch_plazo_inicial:'plazo original',
+    rch_tiempo_pagando:'tiempo pagando con unidad',obligacion_vivienda_activa:'obligación de vivienda activa'};
+  pending.push(...eligibility.missing.map(field=>eligibilityLabels[field]||field));
   for (const [field, label] of [['necesidad_principal', 'Objetivo declarado'], ['urgencia_caso', 'Urgencia registrada'],
     ['horario_contacto_preferido', 'Preferencia de contacto']]) {
     const value = declared(fields, field);
@@ -109,6 +119,7 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
     ? 'Motivo de atención: transferencia al equipo humano desde Chatfuel. Revisar el contexto y los datos pendientes antes de orientar el caso.'
     : 'Motivo de atención: solicitud de agendamiento RCH. La cita está pendiente de confirmación técnica en Bitrix.'];
   const analysis = ['Información basada en las respuestas registradas; requiere validación del asesor.'];
+  analysis.push(`Filtro comercial inicial ${RCH_POLICY_VERSION}: ${eligibility.status}. Motivo: ${eligibility.reason}. No equivale a aprobación financiera ni garantiza ahorro.`);
   const nextSteps = [];
   if (yes(active)) analysis.push('Existe una obligación de vivienda activa declarada; revisar sus condiciones antes de evaluar opciones.');
   else if (no(active)) analysis.push('El cliente declara no tener obligación de vivienda activa; aclarar el motivo de atención antes de continuar la evaluación.');
@@ -137,14 +148,14 @@ function explicitBooking(value) {
   const text = normalize(value);
   if (/\b(?:no|nunca)\b.*\b(?:agend|reserv|program)/.test(text)) return false;
   return /\b(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podemos|puedes)\s+(?:que me\s+)?(?:agendar(?:me)?|agendes|reservar(?:me)?|reserves|programar(?:me)?)/.test(text)
-    || /^(?:agendar(?:me)?|agendame|reservar(?:me)?|reservame)(?:\s+(?:una|la|mi))?(?:\s+(?:cita|llamada|horario|espacio))?[.!]*$/.test(text);
+    || /^(?:agendar(?:me)?|agendame|reservar(?:me)?|reservame)(?:\s+(?:una|la|mi))?(?:\s+(?:cita|llamada|asesoria|reunion|horario|espacio))?[.!]*$/.test(text);
 }
 const confirmBooking = value => yes(value) || /^(claro(?: que si)?|dale|vale|listo|perfecto|por supuesto|esta bien|si por favor|confirmado)[.!\s]*$/.test(normalize(value));
 function offersBooking(value) {
   const text = normalize(value);
   if (!/[¿?]/.test(text) || /\b(?:no|nunca)\b[^?!.]{0,70}\b(?:agend|coordin|organiz|program|reserv)/.test(text)) return false;
-  return /\b(?:quiere|quieres|desea|deseas|le gustaria|te gustaria|podemos)\b[^?!.]{0,100}\b(?:agendar|coordinar|organizar|organicemos|agendemos|coordinemos|programar|reservar)\b[^?!.]{0,80}\b(?:llamada|cita)\b/.test(text)
-    || /\b(?:agendamos|coordinamos|organizamos|programamos|le agendo|te agendo)\b[^?!.]{0,80}\b(?:llamada|cita)\b/.test(text);
+  return /\b(?:quiere|quieres|desea|deseas|le gustaria|te gustaria|podemos)\b[^?!.]{0,100}\b(?:agendar|coordinar|organizar|organicemos|agendemos|coordinemos|programar|reservar)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text)
+    || /\b(?:agendamos|coordinamos|organizamos|programamos|le agendo|te agendo)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text);
 }
 // Ofrece solo inicios libres verificados, repartidos a lo largo de la franja.
 // Deja al menos un intervalo de diez minutos entre las opciones ofrecidas.
@@ -316,7 +327,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function askPeriod(contactId, clientCode, { date, intro = '' } = {}) {
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
-      `${intro ? intro + '\n\n' : 'Con gusto coordinamos una llamada de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} el contacto en la mañana o en la tarde?`);
+      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu asesoría virtual de 30 minutos con Tatiana Chilito 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la asesoría en la mañana o en la tarde?`);
   }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
@@ -337,7 +348,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       excludedStarts: [...new Set([...excluded, ...slots.map(slot => slot.startAt)])] };
     if (!slots.length) return reply(contactId, context, 'No encontré otros horarios libres en ese día y franja. ¿Prefieres otro día u otra franja?');
     return reply(contactId, context,
-      `🕒 Estos son los horarios libres para una llamada de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
+      `🕒 Estos son los horarios libres para tu asesoría virtual de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
   }
   async function options(contactId, clientCode, excluded = [], context = {}) {
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
@@ -496,9 +507,20 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     catch (error) { handoffStatus.lastError = 'HANDOFF_SYNC_FAILED'; throw error; }
     finally { syncing = null; }
   }
+  async function eligibilityGate(contactId, phone, fields) {
+    const result=evaluateRchEligibility(fields);
+    const computed={rch_estado_elegibilidad:result.status,rch_motivo_elegibilidad:result.reason,
+      rch_meses_restantes:result.remainingMonths===null?'':String(result.remainingMonths),rch_eligibilidad_version:RCH_POLICY_VERSION};
+    await setAttributes(contactId,computed);
+    if(result.status==='APLICA')return null;
+    const clientCode=await upsertLead(contactId,phone,{...fields,...computed});
+    return reply(contactId,{step:result.status==='NO_APLICA'?'not_eligible':'eligibility_pending',clientCode},
+      eligibilityMessage(result),{done:true,fields:{solicitud_agendamiento:'no',texto_solicitud_agendamiento:'PENDIENTE'}});
+  }
   async function profileOrOptions(contactId, phone, fields) {
     if (no(fields.obligacion_vivienda_activa)) return reply(contactId, { step: 'out_of_scope' },
       'Esta agenda es para revisar créditos hipotecarios o leasing habitacional activos. Como indicaste que no tienes uno vigente, puedes solicitar a un asesor que revise tu caso.', { done: true });
+    const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
     if (!String(fields.nombre_completo ?? '').trim()) return reply(contactId, { step: 'name' }, 'Para agendar con el asesor, ¿cuál es tu nombre completo?');
     if (!String(fields.ciudad_municipio ?? '').trim()) return reply(contactId, { step: 'city' }, '¿En qué ciudad o municipio estás?');
     if (!yes(fields.obligacion_vivienda_activa)) return reply(contactId, { step: 'active' },
@@ -581,6 +603,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (yes(fields.bitrix_reserva_pendiente) && state?.step !== 'booking') return reply(contactId,
         { step: 'check_pending' }, 'Hay una reserva pendiente de verificación. Un asesor debe comprobarla antes de solicitar otra cita.', { done: true });
       if (!state && expired && ['day','choose','confirm'].includes(expired.step)) {
+        const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
         if (!fields.nombre_completo || !fields.ciudad_municipio || !yes(fields.obligacion_vivienda_activa)) return profileOrOptions(contactId,phone,fields);
         const clientCode = await upsertLead(contactId,phone,fields);
         await setAttributes(contactId,{crm_30x_codigo:clientCode});
@@ -599,6 +622,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { step: 'cancelled', clientCode: state.clientCode },
         'Dejamos la llamada pendiente. No reservé ninguna cita; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
+      if(['period','day','choose','confirm'].includes(state.step)) {
+        const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
+      }
       // A selection offered under the previous duration is not consent to a
       // longer call. Refresh availability and require a new choice/confirmation.
       const offered = state.step === 'confirm' ? [state.slot] : state.slots;
@@ -658,10 +684,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         if (index === null) return reply(contactId, state, '¿Cuál de los horarios ofrecidos te sirve? Puedes responder con la hora, el número o decir, por ejemplo, «la primera». También podemos revisar otro día u otra franja.');
         const slot = state.slots[index];
         return reply(contactId, { ...state, step: 'confirm', slot },
-          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una llamada de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
+          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una asesoría virtual de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
       }
       if (state.step === 'confirm' || state.step === 'booking') {
         if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
+        if(state.step==='confirm')await upsertLead(contactId,phone,{...fields,crm_30x_codigo:state.clientCode});
         // Resolve before creating the appointment and freeze even a missing match
         // in signed state, so retries cannot bind an already created event elsewhere.
         let bookingDealId = Object.hasOwn(state, 'bookingDealId') ? state.bookingDealId : null;
@@ -703,7 +730,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu llamada quedó agendada para ${label(state.slot)} (hora de Colombia). Duración: ${durationMinutes} minutos. Te esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
+          `✅ Tu asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con ${booking.advisor?.name || 'la especialista asignada'}. Duración: ${durationMinutes} minutos.\n\n${env.RCH_ZOOM_URL ? `Enlace de Zoom: ${env.RCH_ZOOM_URL}` : 'El enlace de Zoom queda pendiente de coordinación con el equipo.'}${env.RCH_ADVISOR_CONTACT_PHONE ? `\n📞 Contacto de la especialista: ${env.RCH_ADVISOR_CONTACT_PHONE}` : ''}\n\nPara esta asesoría gratuita es indispensable tener disponible el extracto bancario completo de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Sin ese soporte no se puede realizar el análisis financiero ni atender la asesoría.\n\nDeben estar presentes todos los titulares del crédito y quienes participarán en la decisión. ¡Te esperamos! 😊`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',
@@ -711,6 +738,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             ...(bookingDealId ? {bitrix_responsable_id:booking.crmSync?.responsibleId || '',
               bitrix_responsable_sync:booking.crmSync?.reviewRequired ? 'revision_requerida' : crmSyncPending ? 'pendiente' : 'completado'} : {}) } });
         } catch (error) {
+          if(error.code==='RCH_NOT_ELIGIBLE'||error.code==='RCH_PROFILE_INCOMPLETE') {
+            await setAttributes(contactId,{bitrix_reserva_pendiente:'no'});bookingMayExist=false;
+            return reply(contactId,{step:'eligibility_pending',clientCode:state.clientCode},
+              eligibilityMessage(error.eligibility),{done:true});
+          }
           if (error.message === 'SLOT_UNAVAILABLE' || error.message === 'INVALID_ADVISOR') {
             await setAttributes(contactId, { bitrix_reserva_pendiente: 'no' });
             bookingMayExist = false;

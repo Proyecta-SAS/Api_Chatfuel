@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.12
+# Api_Chatfuel — V1.0.13
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -11,6 +11,10 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 ```
 
 ## Funciones
+
+- Antes de reservar, valida los cinco datos de la guía RCH del 6 de noviembre de 2026.
+- Rechaza entidades/productos excluidos, reportes negativos, falta de capacidad y cinco años o menos restantes.
+- Conserva PENDIENTE para datos desconocidos o inconsistentes y comunica el motivo sin crear citas.
 
 - `/registrar-cliente?id=...` consulta la negociación y guarda su contacto en MySQL.
 - Conserva el consentimiento, franja, dos días y hasta tres horarios separados.
@@ -90,7 +94,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.12"` y
+Después del push, `/health` debe indicar `version: "1.0.13"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

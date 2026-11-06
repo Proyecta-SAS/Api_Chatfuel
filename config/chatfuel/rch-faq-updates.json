@@ -1,0 +1,65 @@
+{
+  "version": "rch-2026-11-06",
+  "edit": [
+    {
+      "question": "9. ¿Puedo hablar con un asesor o solicitar una llamada?",
+      "answer": "Si cumples las condiciones iniciales de la guía RCH, puedes agendar desde este chat una asesoría virtual de 30 minutos con Tatiana Chilito. Elegimos una jornada, un día y un horario real de su calendario; la cita solo queda reservada tras tu confirmación y la confirmación técnica de Bitrix. Si prefieres hablar con una persona ahora, respetamos tu solicitud."
+    },
+    {
+      "question": "7. ¿Qué información necesitan para comenzar la revisión de mi crédito hipotecario?",
+      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una asesoría virtual de 30 minutos con Tatiana Chilito. Nombre y ciudad se completan solo si faltan al agendar."
+    },
+    {
+      "question": "5. ¿El estudio inicial es gratuito?",
+      "answer": "La asesoría inicial virtual de 30 minutos es gratuita. Para realizar el análisis financiero y atenderla es indispensable tener disponible el extracto bancario COMPLETO de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Deben participar todos los titulares y quienes tomarán la decisión. Esto no significa que la gestión RCH ni sus honorarios posteriores sean gratuitos."
+    },
+    {
+      "question": "4. ¿Cuánto cuesta el servicio?",
+      "answer": "La asesoría inicial es gratuita con el extracto bancario completo en PDF. Durante ella, Tatiana explica cómo funciona la gestión RCH, su alcance y su valor antes de contratar. Desde este chat no se fija una tarifa ni se promete un ahorro o resultado."
+    },
+    {
+      "question": "¿Debo enviar cédula, extractos o documentos personales para la orientación inicial?",
+      "answer": "Para responder las cinco preguntas iniciales no necesitas subir documentos. Al confirmar una asesoría, debes tener el extracto bancario COMPLETO en PDF y compartirlo con Tatiana por el canal autorizado; sin ese soporte no se puede realizar el análisis financiero ni atender esa asesoría. No envíes claves, códigos ni documentos sensibles sin verificar el destinatario."
+    },
+    {
+      "question": "RCH: Capacidad de pago y capacidad de aumentar la cuota",
+      "answer": "Para nuestro proceso RCH debes poder aumentar un poco la cuota mensual. No exigimos en esta pregunta un porcentaje ni calculamos ingresos. Si actualmente no tienes esa posibilidad, no podemos avanzar con este proceso por ahora. Responder no constituye un compromiso de pago ni un cobro."
+    },
+    {
+      "question": "RCH: No puedo aumentar la cuota",
+      "answer": "Gracias por contarlo 😊. Nuestro proceso de RCH requiere poder realizar un esfuerzo adicional en la cuota mensual. Si actualmente no tienes esa posibilidad, no podemos avanzar con esta solicitud por ahora. No te recomendamos comprometer recursos que necesitas ni garantizamos alternativas."
+    },
+    {
+      "question": "RCH: Con qué bancos se puede consultar",
+      "answer": "Por las condiciones actuales del proceso de Avanzar, no gestionamos RCH con BBVA, Itaú, Credifamilia, cajas de compensación o cooperativas. Tampoco aplica a libre inversión. Son condiciones comerciales de este proceso; no son prohibiciones legales universales. Para otra entidad de crédito hipotecario o leasing activo, revisamos los demás filtros."
+    },
+    {
+      "question": "RCH: Puedo consultar si estoy en mora o tengo reportes",
+      "answer": "El filtro de esta guía pregunta específicamente por reportes NEGATIVOS actuales en centrales de riesgo. Si confirmas que los tienes, no podemos avanzar con nuestro proceso RCH por ahora. Estar registrado en una central o mencionar mora no demuestra por sí solo un reporte negativo; si no lo sabes, pedimos aclaración y el caso queda pendiente."
+    },
+    {
+      "question": "RCH: Años pagados, años restantes y plazo",
+      "answer": "El plazo original es el tiempo por el que tomaste el crédito; el tiempo pagando es el que ya transcurrió. Restamos ambos con la misma unidad. Si te quedan cinco años o menos, no aplica a nuestro proceso actual; si restan más de cinco años, revisamos los demás filtros. Ante datos desconocidos, rangos o inconsistencia no inventamos el resultado."
+    },
+    {
+      "question": "RCH: Cuántas cuotas debo haber pagado y si aplica desde el comienzo",
+      "answer": "Esta guía no añade un mínimo de cuotas pagadas como filtro. Preguntamos el plazo original y cuánto tiempo llevas pagando para calcular lo restante: debe ser más de cinco años, además de cumplir banco, reportes negativos y capacidad de aumentar cuota. No deducimos datos no declarados."
+    },
+    {
+      "question": "RCH: Tengo que pagar antes, cuánto cuesta o es gratis",
+      "answer": "La asesoría inicial virtual de 30 minutos es gratuita, con extracto bancario completo en PDF indispensable para el análisis y la atención. La gestión RCH posterior puede tener honorarios: Tatiana explica su valor, alcance y condiciones antes de contratar. El chat no cotiza esos honorarios ni promete cobro al éxito o ahorro."
+    },
+    {
+      "question": "RCH: Cómo se realiza la orientación inicial",
+      "answer": "Dalia pregunta banco actual, reportes negativos en centrales, posibilidad de aumentar un poco la cuota, plazo original y tiempo pagando. Si cumples las condiciones iniciales, ofrece asesoría virtual de 30 minutos con Tatiana. No se requieren documentos para estas cinco preguntas; el extracto completo en PDF sí es indispensable para el análisis y la asesoría posterior."
+    },
+    {
+      "question": "RCH: Reducir tiempo no significa bajar la cuota",
+      "answer": "Reducir plazo busca terminar antes; no equivale a bajar la cuota. Nuestro proceso requiere poder realizar un esfuerzo adicional en el pago mensual para aportar más a capital. Si no puedes aumentar un poco la cuota, no aplica a este proceso por ahora. No se garantiza reducción ni ahorro."
+    },
+    {
+      "question": "RCH: No conozco el saldo pendiente o los años restantes",
+      "answer": "El saldo de dinero no es una pregunta obligatoria de esta guía. Para revisar el tiempo restante necesitamos el plazo original y cuánto tiempo llevas pagando, con unidad. Si no conoces esos datos o son ambiguos, el caso queda pendiente de aclaración; no inventamos cifras ni te descartamos automáticamente."
+    }
+  ]
+}

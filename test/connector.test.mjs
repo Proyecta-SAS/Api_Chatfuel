@@ -27,7 +27,8 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
   database = null, stagePending = false, resolveError = null, availabilityErrors = [] } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
-    obligacion_vivienda_activa: 'si', ...initial };
+    obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
+    rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años', ...initial };
   const calls = [];
   const initialSearchFields = { ...fields };
   let time = START;
@@ -495,13 +496,14 @@ test('stale contact search and legacy deployment fingerprints do not duplicate p
 });
 
 test('booking profile uses legacy facts as fallback and keeps reservation unconfirmed', async () => {
-  const f = fixture({ initial: { banco_entidad: 'Caja Social', anos_pagados: 'entre 2 y 3', estado_pago: 'al día' } });
+  const f = fixture({ initial: { rch_banco:'',banco_entidad: 'Caja Social', anos_pagados: 'entre 2 y 3', estado_pago: 'al día' } });
   await f.request('start');
   const lead = f.calls.find(c => c.url.endsWith('/prospecting-bot/lead')).payload;
   assert.match(lead.summary, /Entidad del crédito: Caja Social/);
   assert.match(lead.summary, /años: entre 2 y 3/);
   assert.match(lead.summary, /pendiente de confirmación técnica en Bitrix/);
-  assert.match(lead.summary, /Datos pendientes: cobertura de tasa Mi Casa Ya o FRECH; saldo pendiente en dinero/);
+  assert.doesNotMatch(lead.summary, /Datos pendientes: cobertura de tasa Mi Casa Ya o FRECH; saldo pendiente en dinero/);
+  assert.match(lead.summary,/Filtro comercial inicial.*APLICA/);
   assert.doesNotMatch(lead.summary, /número de cuotas vencidas sin pagar/);
   assert.equal(f.bookings().length, 0);
 });
@@ -647,6 +649,23 @@ test('a direct natural request works without depending on a captured keyword', a
   await f.handle.synchronizeHandoffs();
   assert.equal(f.calls.filter(c => c.payload.query?.includes('mutation NaturalBookingFlow')).length, 1);
   assert.equal(f.bookings().length, 0);
+});
+
+test('aceptar una asesoría virtual activa el flujo una vez sin reservar',async()=>{
+  const f=fixture({latestText:'sí',initial:{'last user freeform input':'sí'},previousReply:'¿Te gustaría agendar tu asesoría virtual de 30 minutos con Tatiana Chilito?'});
+  await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+  assert.equal(f.bookings().length,0);
+});
+
+test('un caso excluido o pendiente no consulta horarios ni crea citas',async()=>{
+  for(const initial of [{rch_banco:'BBVA'},{rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'},
+    {rch_tiempo_pagando:'15 años'},{rch_reportes_negativos:'PENDIENTE'}]){
+    const f=fixture({initial});const response=await f.request('start');
+    assert.equal(response.done,'si');assert.equal(f.bookings().length,0);
+    assert.equal(f.calls.filter(c=>c.url.endsWith('/availability')).length,0);
+    assert.ok(['PENDIENTE','NO_APLICA'].includes(f.fields.rch_estado_elegibilidad));
+  }
 });
 
 test('natural routing waits for the assistant reply before starting the calendar dialogue', async () => {

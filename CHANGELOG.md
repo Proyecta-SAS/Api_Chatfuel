@@ -1,3 +1,11 @@
+# V1.0.13 - 2026-11-06
+
+- Aplica la guía RCH aprobada: banco, reportes negativos, capacidad de aumentar cuota, plazo original y tiempo pagando.
+- Clasifica APLICA, NO APLICA y PENDIENTE sin scoring numérico; exige más de cinco años restantes para nuevas reservas.
+- Bloquea reservas descartadas o incompletas y ofrece el mensaje del motivo concreto sin inventar datos.
+- Reconoce aceptación de asesoría virtual y actualiza el resumen de perfilamiento, instrucciones, capturas y FAQ.
+- Conserva Tatiana como única asesora, duración de 30 minutos y citas anteriores; recuerda PDF completo y participación de titulares.
+
 # V1.0.12 - 2026-11-06
 
 - Limita las nuevas citas de Chatfuel a Tatiana Chilito mediante el grupo configurado en Railway.
