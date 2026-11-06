@@ -2,8 +2,9 @@ import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
+import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.16';
+export const RELEASE_VERSION = '1.0.17';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -150,6 +151,7 @@ function explicitBooking(value) {
     || /\b(?:no se si|tal vez|depende|solo si)\b/.test(text)) return false;
   return /\b(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podemos|puedes)\s+(?:que me\s+)?(?:agendar(?:me)?|agendes|reservar(?:me)?|reserves|programar(?:me)?)/.test(text)
     || /\b(?:tienes|tiene)\s+(?:la\s+)?(?:capacidad|posibilidad)\s+de\s+agendarme\b/.test(text)
+    || /^(?:(?:listo|bueno|si|por favor)[,\s]+)*(?:dame|muestrame|revisemos|consultemos)\s+(?:los\s+)?horarios[.!?\s]*$/.test(text)
     || /^(?:(?:pero|bueno|entonces|por favor|porfa|dale|si)[,\s]+)*(?:agendame|reservame|programame)\b/.test(text)
     || /^(?:agendar(?:me)?|agendame|reservar(?:me)?|reservame)(?:\s+(?:una|la|mi))?(?:\s+(?:cita|llamada|asesoria|reunion|horario|espacio))?[.!]*$/.test(text);
 }
@@ -160,7 +162,8 @@ function availabilityAnswer(value) {
 }
 const nightPreference=value=>/\b(?:en|por) la noche\b|^noche[.!?]*$/.test(normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim());
 const nightExplanation='Las asesorías se coordinan de lunes a viernes, entre las 8:30 a. m. y las 5:00 p. m., hora de Colombia. No tenemos horarios nocturnos; podemos revisar otro día 😊.';
-const confirmBooking = value => yes(value) || /^(claro(?: que si)?|dale|vale|listo|perfecto|por supuesto|esta bien|si por favor|confirmado)[.!\s]*$/.test(normalize(value));
+const confirmBooking = value => yes(value) || /^(?:que\s+)?si{1,12}(?:\s+por favor)?[.!?\s]*$/.test(normalize(value))
+  || /^(claro(?: que si)?|dale|vale|listo|perfecto|por supuesto|esta bien|si por favor|confirmado)[.!\s]*$/.test(normalize(value));
 function offersBooking(value) {
   const text = normalize(value);
   if (!/[¿?]/.test(text) || /\b(?:no|nunca)\b[^?!.]{0,70}\b(?:agend|coordin|organiz|program|reserv)/.test(text)) return false;
@@ -278,13 +281,17 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     await graphql(`mutation BookingAttributes(${declarations.join(',')}){${operations.join(' ')}}`, variables);
   }
   async function contact(contactId) {
-    const data = await graphql(`query BookingContact($botID:BotID!,$id:ContactID!,$names:[AttributeName!]){
+    const data = await graphql(`query BookingContact($botID:BotID!,$id:ContactID!,$conversationID:ConversationID!,$names:[AttributeName!]){
       bot(id:$botID){contact(id:$id){id attributes(names:$names){attr{name} value{
         ... on BotAttributeValueString{stringValue} ... on BotAttributeValueBoolean{booleanValue}
-        ... on BotAttributeValueDouble{doubleValue}}} ... on WhatsappContact{phone}}}}`,
-    { botID, id: contactId, names: ATTR });
+        ... on BotAttributeValueDouble{doubleValue}}} ... on WhatsappContact{phone}}
+        conversation(conversationID:$conversationID){messages(first:40){edges{node{id __typename
+          ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}`,
+    { botID, id: contactId,conversationID:contactId, names: ATTR });
     const item = data.bot.contact;
     const fields = attributeMap(item.attributes);
+    const updates=reconcileQuestionnaireTimes(fields,data.bot.conversation?.messages?.edges?.map(e=>e.node)||[]);
+    if(Object.keys(updates).length){Object.assign(fields,updates);await setAttributes(contactId,updates);}
     const phone = String(item.phone ?? '').replace(/\D/g, '');
     if (!/^\d{8,15}$/.test(phone)) throw new Error('INVALID_CONTACT');
     return { phone, fields };
@@ -337,7 +344,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function askPeriod(contactId, clientCode, { date, intro = '' } = {}) {
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
-      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu asesoría virtual de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la asesoría en la mañana o en la tarde?`);
+      `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu llamada de 30 minutos con un asesor 🗓️.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} la llamada en la mañana o en la tarde?`);
   }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
@@ -358,7 +365,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       excludedStarts: [...new Set([...excluded, ...slots.map(slot => slot.startAt)])] };
     if (!slots.length) return reply(contactId, context, 'No encontré otros horarios libres en ese día y franja. ¿Prefieres otro día u otra franja?');
     return reply(contactId, context,
-      `🕒 Estos son los horarios libres para tu asesoría virtual de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
+      `🕒 Estos son los horarios libres para tu llamada de 30 minutos el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿Cuál te sirve? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
   }
   async function options(contactId, clientCode, excluded = [], context = {}) {
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
@@ -527,7 +534,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const computed={rch_estado_elegibilidad:result.status,rch_motivo_elegibilidad:result.reason,
       rch_meses_restantes:result.remainingMonths===null?'':String(result.remainingMonths),rch_eligibilidad_version:RCH_POLICY_VERSION};
     await setAttributes(contactId,computed);
-    if(result.status==='APLICA')return null;
+    if(result.status!=='NO_APLICA')return null;
     const clientCode=await upsertLead(contactId,phone,{...fields,...computed});
     return reply(contactId,{step:result.status==='NO_APLICA'?'not_eligible':'eligibility_pending',clientCode},
       eligibilityMessage(result),{done:true,fields:{solicitud_agendamiento:'no',texto_solicitud_agendamiento:'PENDIENTE'}});
@@ -700,7 +707,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         if (index === null) return reply(contactId, state, '¿Cuál de los horarios ofrecidos te sirve? Puedes responder con la hora, el número o decir, por ejemplo, «la primera». También podemos revisar otro día u otra franja.');
         const slot = state.slots[index];
         return reply(contactId, { ...state, step: 'confirm', slot },
-          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una asesoría virtual de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
+          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para una llamada de 30 minutos. ¿Confirmas que reserve ese horario? Responde SÍ o CANCELAR.`);
       }
       if (state.step === 'confirm' || state.step === 'booking') {
         if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
@@ -746,7 +753,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos.\n\n${env.RCH_ZOOM_URL ? `Enlace de Zoom: ${env.RCH_ZOOM_URL}` : 'El enlace de Zoom queda pendiente de coordinación con el equipo.'}${env.RCH_ADVISOR_CONTACT_PHONE ? `\n📞 Contacto de la especialista: ${env.RCH_ADVISOR_CONTACT_PHONE}` : ''}\n\nPara esta asesoría gratuita es indispensable tener disponible el extracto bancario completo de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Sin ese soporte no se puede realizar el análisis financiero ni atender la asesoría.\n\nDeben estar presentes todos los titulares del crédito y quienes participarán en la decisión. ¡Te esperamos! 😊`,
+          `✅ Tu llamada quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos. Te esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',

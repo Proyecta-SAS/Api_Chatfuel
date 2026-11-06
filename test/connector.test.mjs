@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  database = null, stagePending = false, resolveError = null, availabilityErrors = [], incomingSentTime = new Date(START).toISOString() } = {}) {
+  database = null, stagePending = false, resolveError = null, availabilityErrors = [], bookingMessages = [], incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
     rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años', ...initial };
@@ -55,7 +55,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
       if (payload.query.includes('query BookingContact')) return Response.json({ data: { bot: { contact: {
         id: CONTACT, phone: '573000000001', attributes: Object.entries(fields).map(([name, value]) =>
           ({ attr: { name }, value: { stringValue: String(value) } })),
-      } } } });
+      },conversation:{messages:{edges:bookingMessages.map(node=>({node}))}} } } });
       const data = {};
       for (const match of payload.query.matchAll(/a(\d+):contactAttributeUpdate\(id:\$id,attrName:("(?:\\.|[^"\\])*"),attrValue:\$v\d+\)/g)) {
         fields[JSON.parse(match[2])] = payload.variables[`v${match[1]}`];
@@ -121,6 +121,36 @@ async function prepareOptions(f) {
   await f.request('step', 'en la mañana');
   return f.request('step', '1');
 }
+
+test('al entrar a agenda conserva la corrección real y no repite tiempos financieros',async()=>{
+  const bookingMessages=[
+    {__typename:'WhatsAppInTextMessage',text:'10 años ya te lo habia dicho'},
+    {__typename:'WhatsAppOutTextMessage',text:'Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?'},
+    {__typename:'WhatsAppInTextMessage',text:'Ya te dije que 30 años'},
+    {__typename:'WhatsAppOutTextMessage',text:'¿A cuántos años tomaste originalmente tu crédito?'}];
+  const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'},bookingMessages});
+  const response=await f.request('start');
+  assert.equal(f.fields.rch_plazo_inicial,'30 años');assert.equal(f.fields.rch_tiempo_pagando,'10 años');
+  assert.match(response.message,/mañana o en la tarde/);assert.doesNotMatch(response.message,/tomaste|llevas pagando/);
+});
+
+test('la agenda habitual no reinicia el perfil por capturas pendientes y confirma una llamada',async()=>{
+  const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'}});
+  const start=await f.request('start');assert.match(start.message,/mañana o en la tarde/);
+  await f.request('step','mañana');await f.request('step','1');await f.request('step','1');
+  const result=await f.request('step','sí');
+  assert.match(result.message,/llamada quedó agendada/);assert.match(result.message,/30 minutos/);
+  assert.doesNotMatch(result.message,/Zoom|PDF|titulares|Tatiana/);assert.equal(f.bookings().length,1);
+});
+
+test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{
+  for(const text of ['Que siiiiiii','Listo dame los horarios']){
+    const f=fixture({latestText:text,initial:{'last user freeform input':text},previousReply:'¿Te gustaría agendar una llamada de 30 minutos con un asesor?'});
+    await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+    assert.equal(f.bookings().length,0);
+  }
+});
 
 test('una credencial rechazada tras confirmar el crédito conserva los datos sin anunciar una reserva', async () => {
   const f = fixture({ initial: { nombre_completo: '', ciudad_municipio: '', obligacion_vivienda_activa: '' }, resolveError: 401 });
@@ -689,9 +719,9 @@ test('aceptar una asesoría virtual activa el flujo una vez sin reservar',async(
   assert.equal(f.bookings().length,0);
 });
 
-test('un caso excluido o pendiente no consulta horarios ni crea citas',async()=>{
+test('un caso excluido no consulta horarios ni crea citas',async()=>{
   for(const initial of [{rch_banco:'BBVA'},{rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'},
-    {rch_tiempo_pagando:'15 años'},{rch_reportes_negativos:'PENDIENTE'}]){
+    {rch_tiempo_pagando:'15 años'}]){
     const f=fixture({initial});const response=await f.request('start');
     assert.equal(response.done,'si');assert.equal(f.bookings().length,0);
     assert.equal(f.calls.filter(c=>c.url.endsWith('/availability')).length,0);

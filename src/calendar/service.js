@@ -209,8 +209,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
       const profile = await db.getProfile(code);
       if (!profile) fail('LEAD_NOT_FOUND');
       const eligibility=evaluateRchEligibility(profile.data?.answers,{requireActive:true});
-      if(eligibility.status!=='APLICA')throw Object.assign(new Error(eligibility.status==='NO_APLICA'?'RCH_NOT_ELIGIBLE':'RCH_PROFILE_INCOMPLETE'),
-        {code:eligibility.status==='NO_APLICA'?'RCH_NOT_ELIGIBLE':'RCH_PROFILE_INCOMPLETE',retryable:false,eligibility});
+      if(eligibility.status==='NO_APLICA')throw Object.assign(new Error('RCH_NOT_ELIGIBLE'),{code:'RCH_NOT_ELIGIBLE',retryable:false,eligibility});
       if (!advisors.some(a => a.id === body.advisorId)) fail('INVALID_ADVISOR');
       let originalStage = null, originalResponsible = null, originalAppointmentDate = null;
       if (requestedDeal) {

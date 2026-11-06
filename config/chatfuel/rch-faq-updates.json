@@ -3,23 +3,23 @@
   "edit": [
     {
       "question": "9. ¿Puedo hablar con un asesor o solicitar una llamada?",
-      "answer": "Sí, puedes coordinar tu asesoría virtual de 30 minutos desde este mismo chat. La agenda externa consulta horarios reales en Bitrix y solo confirma una reserva después de que elijas y confirmes un horario. Las asesorías se coordinan de lunes a viernes entre 8:30 a. m. y 5:00 p. m., hora de Colombia; no hay citas nocturnas ni de fin de semana. Si esa franja no te sirve hoy, podemos revisar otro día. Antes de agendar deben estar completos los datos del filtro inicial."
+      "answer": "Sí, puedes coordinar tu llamada de 30 minutos desde este mismo chat. La agenda externa consulta horarios reales en Bitrix y solo confirma una reserva después de que elijas y confirmes un horario. Las asesorías se coordinan de lunes a viernes entre 8:30 a. m. y 5:00 p. m., hora de Colombia; no hay citas nocturnas ni de fin de semana. Si esa franja no te sirve hoy, podemos revisar otro día. Antes de agendar deben estar completos los datos del filtro inicial."
     },
     {
       "question": "7. ¿Qué información necesitan para comenzar la revisión de mi crédito hipotecario?",
-      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una asesoría virtual de 30 minutos con un asesor. Nombre y ciudad se completan solo si faltan al agendar."
+      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una llamada de 30 minutos con un asesor. Nombre y ciudad se completan solo si faltan al agendar."
     },
     {
       "question": "5. ¿El estudio inicial es gratuito?",
-      "answer": "La asesoría inicial virtual de 30 minutos es gratuita. Para realizar el análisis financiero y atenderla es indispensable tener disponible el extracto bancario COMPLETO de tu crédito en PDF y compartirlo con la especialista por el canal autorizado. Deben participar todos los titulares y quienes tomarán la decisión. Esto no significa que la gestión reducción de crédito hipotecario ni sus honorarios posteriores sean gratuitos."
+      "answer": "El asesor confirma los costos y el alcance de la revisión o gestión antes de contratar. Este chat no fija tarifas ni promete gratuidad, ahorros ni resultados."
     },
     {
       "question": "4. ¿Cuánto cuesta el servicio?",
-      "answer": "La asesoría inicial es gratuita con el extracto bancario completo en PDF. Durante ella, el asesor explica cómo funciona la gestión reducción de crédito hipotecario, su alcance y su valor antes de contratar. Desde este chat no se fija una tarifa ni se promete un ahorro o resultado."
+      "answer": "El asesor confirma los costos y el alcance de la revisión o gestión antes de contratar. Este chat no fija tarifas ni promete gratuidad, ahorros ni resultados."
     },
     {
       "question": "¿Debo enviar cédula, extractos o documentos personales para la orientación inicial?",
-      "answer": "Para responder las cinco preguntas iniciales no necesitas subir documentos. Al confirmar una asesoría, debes tener el extracto bancario COMPLETO en PDF y compartirlo con un asesor por el canal autorizado; sin ese soporte no se puede realizar el análisis financiero ni atender esa asesoría. No envíes claves, códigos ni documentos sensibles sin verificar el destinatario."
+      "answer": "Para la orientación inicial y coordinar la llamada no necesitas subir documentos personales. El asesor confirma los soportes necesarios y el canal autorizado cuando corresponda. No compartas claves ni códigos."
     },
     {
       "question": "RCH: Capacidad de pago y capacidad de aumentar la cuota",
@@ -47,11 +47,11 @@
     },
     {
       "question": "RCH: Tengo que pagar antes, cuánto cuesta o es gratis",
-      "answer": "La asesoría inicial virtual de 30 minutos es gratuita, con extracto bancario completo en PDF indispensable para el análisis y la atención. La gestión reducción de crédito hipotecario posterior puede tener honorarios: El asesor explica su valor, alcance y condiciones antes de contratar. El chat no cotiza esos honorarios ni promete cobro al éxito o ahorro."
+      "answer": "El asesor confirma los costos y el alcance de la revisión o gestión antes de contratar. Este chat no fija tarifas ni promete gratuidad, ahorros ni resultados."
     },
     {
       "question": "RCH: Cómo se realiza la orientación inicial",
-      "answer": "Dalia pregunta banco actual, reportes negativos en centrales, posibilidad de aumentar un poco la cuota, plazo original y tiempo pagando. Si cumples las condiciones iniciales, ofrece asesoría virtual de 30 minutos con un asesor. No se requieren documentos para estas cinco preguntas; el extracto completo en PDF sí es indispensable para el análisis y la asesoría posterior."
+      "answer": "Te preguntamos el banco actual, si tienes reportes negativos en centrales, si puedes aumentar un poco la cuota, el plazo original del crédito y cuánto tiempo llevas pagando. Con esos datos revisamos las condiciones iniciales de nuestro proceso. Si cumples, puedes agendar una llamada de 30 minutos con un asesor. Nombre y ciudad se completan solo si faltan al agendar."
     },
     {
       "question": "RCH: Reducir tiempo no significa bajar la cuota",
