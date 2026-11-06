@@ -4,7 +4,7 @@ import {reconcileQuestionnaireTimes} from '../src/calendar/confirmedAnswers.js';
 const out=text=>({__typename:'WhatsAppOutTextMessage',text});
 const incoming=text=>({__typename:'WhatsAppInTextMessage',text});
 const original=()=>out('¿A cuántos años tomaste originalmente tu crédito? Por ejemplo: 15, 20 o 30 años.');
-const paid=()=>out('Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?');
+const paid=()=>out('Gracias por aclararlo 😊 Entonces tomo como plazo original 30 años. Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?');
 test('la última corrección reemplaza los tiempos antiguos sin repetir el perfil',()=>{
   const chronological=[original(),incoming('20 años'),original(),incoming('a 30 años'),paid(),incoming('10 años'),
     original(),incoming('Ya te dije que 30 años'),paid(),incoming('10 años ya te lo habia dicho'),

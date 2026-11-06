@@ -2,8 +2,10 @@ import { durationMonths } from './rchEligibility.js';
 const normalize=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 
 function questionField(text){
-  const t=normalize(text);
   if(!/[?¿]/.test(text))return null;
+  // An acknowledgement can mention the original term before asking time paid.
+  // Only the question itself identifies the field answered by the customer.
+  const t=normalize(text.slice(text.lastIndexOf('¿')+1));
   if(/(?:plazo\s+(?:original|inicial)|anos.*(?:tomaste|adquiriste|originalmente))/.test(t))return 'rch_plazo_inicial';
   if(/(?:cuanto tiempo|hace cuanto|cuantos anos).*pagando/.test(t))return 'rch_tiempo_pagando';
   return null;

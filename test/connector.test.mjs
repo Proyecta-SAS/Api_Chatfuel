@@ -125,7 +125,7 @@ async function prepareOptions(f) {
 test('al entrar a agenda conserva la corrección real y no repite tiempos financieros',async()=>{
   const bookingMessages=[
     {__typename:'WhatsAppInTextMessage',text:'10 años ya te lo habia dicho'},
-    {__typename:'WhatsAppOutTextMessage',text:'Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?'},
+    {__typename:'WhatsAppOutTextMessage',text:'Gracias por aclararlo 😊 Entonces tomo como plazo original 30 años. Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?'},
     {__typename:'WhatsAppInTextMessage',text:'Ya te dije que 30 años'},
     {__typename:'WhatsAppOutTextMessage',text:'¿A cuántos años tomaste originalmente tu crédito?'}];
   const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'},bookingMessages});
