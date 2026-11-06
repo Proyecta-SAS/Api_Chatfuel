@@ -3,7 +3,7 @@ import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileS
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 
-export const RELEASE_VERSION = '1.0.15';
+export const RELEASE_VERSION = '1.0.16';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -145,11 +145,21 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
 }
 const declineBooking = value => no(value) || /^(no gracias|ahora no|por ahora no|mas tarde|despues|prefiero no|no quiero agendar|no me agendes|dejalo pendiente|lo dejamos pendiente)[.!\s]*$/.test(normalize(value));
 function explicitBooking(value) {
-  const text = normalize(value);
-  if (/\b(?:no|nunca)\b.*\b(?:agend|reserv|program)/.test(text)) return false;
+  const text = normalize(value).replace(/^[¿¡]+/,'');
+  if (/\b(?:no|nunca)\s+(?:(?:quiero|quisiera|deseo|necesito|puedo|vamos a)\s+)?(?:que me\s+|me\s+)?(?:agend\w*|reserv\w*|program\w*)\b/.test(text)
+    || /\b(?:no se si|tal vez|depende|solo si)\b/.test(text)) return false;
   return /\b(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podemos|puedes)\s+(?:que me\s+)?(?:agendar(?:me)?|agendes|reservar(?:me)?|reserves|programar(?:me)?)/.test(text)
+    || /\b(?:tienes|tiene)\s+(?:la\s+)?(?:capacidad|posibilidad)\s+de\s+agendarme\b/.test(text)
+    || /^(?:(?:pero|bueno|entonces|por favor|porfa|dale|si)[,\s]+)*(?:agendame|reservame|programame)\b/.test(text)
     || /^(?:agendar(?:me)?|agendame|reservar(?:me)?|reservame)(?:\s+(?:una|la|mi))?(?:\s+(?:cita|llamada|asesoria|reunion|horario|espacio))?[.!]*$/.test(text);
 }
+function availabilityAnswer(value) {
+  const text=normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim();
+  if(declineBooking(value)||/\b(?:no|nunca|tal vez|depende|solo si)\b/.test(text))return false;
+  return /(?:en|por) la (?:manana|tarde|noche)\b|^(?:manana|tarde|noche)[.!?]*$/.test(text);
+}
+const nightPreference=value=>/\b(?:en|por) la noche\b|^noche[.!?]*$/.test(normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim());
+const nightExplanation='Las asesorías se coordinan de lunes a viernes, entre las 8:30 a. m. y las 5:00 p. m., hora de Colombia. No tenemos horarios nocturnos; podemos revisar otro día 😊.';
 const confirmBooking = value => yes(value) || /^(claro(?: que si)?|dale|vale|listo|perfecto|por supuesto|esta bien|si por favor|confirmado)[.!\s]*$/.test(normalize(value));
 function offersBooking(value) {
   const text = normalize(value);
@@ -449,25 +459,30 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           if (node.assignee?.__typename === 'FuelyAIAssignee') {
             const state = decode(fields.bitrix_agenda_estado, node.id);
             const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending'].includes(state.step);
-            if ((!yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']))
+            if ((!yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
               || active || yes(fields.bitrix_reserva_pendiente) || !env.CHATFUEL_BOOKING_FLOW_ID) continue;
-            const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
+            const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
             if (current.bot.conversation.status === 'open') continue;
             const messages = current.bot.conversation.messages.edges.map(edge => edge.node);
             const incomingIndex = messages.findIndex(message => message.__typename.startsWith('WhatsAppIn'));
             const incoming = messages[incomingIndex];
             if (!messages.slice(0, incomingIndex).some(message => message.__typename.startsWith('WhatsAppOut'))) continue;
             if (incoming?.__typename !== 'WhatsAppInTextMessage' || declineBooking(incoming.text)) continue;
+            // Configuration changes must not replay already answered old requests.
+            const incomingAt=Date.parse(incoming.sentTime);
+            if(!Number.isFinite(incomingAt)||now()-incomingAt>5*60_000)continue;
             const evidence = value => normalize(value).replace(/[¿?¡!.,;:"'«»]/g, '').replace(/\s+/g, ' ').trim();
             const preceding = messages.slice(incomingIndex + 1).find(message =>
               message.__typename.startsWith('WhatsAppIn') || message.__typename.startsWith('WhatsAppOut'));
             const acceptedOffer = confirmBooking(incoming.text)
               && preceding?.__typename === 'WhatsAppOutTextMessage' && offersBooking(preceding.text);
+            const requestedAvailability=availabilityAnswer(incoming.text)
+              && preceding?.__typename==='WhatsAppOutTextMessage'&&offersBooking(preceding.text);
             const capturedIntent = yes(fields.solicitud_agendamiento) && fields.texto_solicitud_agendamiento
               && evidence(incoming.text) === evidence(fields.texto_solicitud_agendamiento);
             // A bare yes needs the immediately preceding call offer, even if an
             // AI-extracted attribute incorrectly classifies another answer as consent.
-            if (!explicitBooking(incoming.text) && !acceptedOffer && !(capturedIntent && !confirmBooking(incoming.text))) continue;
+            if (!explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
             const intentHash = createHash('sha256').update(`${node.id}|${incoming.id}`).digest('hex');
             if (fields.crm_30x_booking_intent_hash === intentHash
               || routedBookingIntents.get(node.id) === intentHash) continue;
@@ -527,7 +542,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       '¿Actualmente tienes un crédito hipotecario o leasing habitacional que todavía estás pagando? Responde SÍ o NO.');
     const clientCode = await upsertLead(contactId, phone, fields);
     await setAttributes(contactId, { crm_30x_codigo: clientCode });
-    return askPeriod(contactId, clientCode);
+    return askPeriod(contactId, clientCode,nightPreference(fields['last user freeform input'])?{intro:nightExplanation}:{});
   }
 
   const handle = async function handle(request) {
@@ -653,6 +668,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           { fromTime: state.fromTime || '08:30', toTime: state.toTime || '17:00' });
         if (/\b(?:otra franja|cambiar (?:de )?franja)\b/.test(text)) return askPeriod(contactId, state.clientCode, { date: state.date });
         if (state.step === 'period') {
+          if(nightPreference(answer))return askPeriod(contactId,state.clientCode,{date:state.date,intro:nightExplanation});
           const index = selection(answer, 2);
           const window = index !== null ? PERIODS[index] : periodFrom(answer);
           if (!window) return reply(contactId, state, '¿Prefieres el contacto en la mañana o en la tarde?');

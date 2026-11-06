@@ -1,3 +1,10 @@
+# V1.0.16 - 2026-11-06
+
+- Reconoce solicitudes coloquiales y preguntas sobre la capacidad de agendar, incluso con captura de intención pendiente.
+- Acepta una jornada tras una invitación y explica los horarios reales cuando se pide atención nocturna.
+- Refuerza que la agenda externa sí está disponible y evita negar el servicio o remitir al mismo canal.
+- No reproduce mensajes antiguos al actualizar el enrutamiento; mantiene elección y confirmación antes de reservar.
+
 # V1.0.15 - 2026-11-06
 
 - Muestra «reducción de crédito hipotecario» en lugar de la sigla interna en mensajes de descarte, explicaciones y FAQ del cliente.

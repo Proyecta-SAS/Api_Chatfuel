@@ -21,7 +21,7 @@ await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
 try {
   const health = await (await fetch(`${base}/health`)).json();
-  assert.equal(health.version, '1.0.15');
+  assert.equal(health.version, '1.0.16');
   assert.equal(health.mysql.ok, true);
   assert.equal((await fetch(`${base}/registrar-cliente?id=123`)).status, 200);
   assert.equal(stored, 1);

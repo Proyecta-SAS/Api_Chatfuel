@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  database = null, stagePending = false, resolveError = null, availabilityErrors = [] } = {}) {
+  database = null, stagePending = false, resolveError = null, availabilityErrors = [], incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
     rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años', ...initial };
@@ -38,7 +38,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
     calls.push({ url, payload, headers: init.headers });
     if (url.endsWith('/graphql')) {
       if (payload.query.includes('query NaturalBookingContext')) return Response.json({ data: { bot: { conversation: {
-        status: naturalStatus, messages: { edges: [...(botReplied ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'outgoing-1' } }] : []), { node: { __typename: 'WhatsAppInTextMessage', id: 'incoming-1', text: latestText } }, ...(previousReply ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'offer-1', text: previousReply } }] : []), ...olderMessages.map(node => ({ node }))] },
+        status: naturalStatus, messages: { edges: [...(botReplied ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'outgoing-1' } }] : []), { node: { __typename: 'WhatsAppInTextMessage', id: 'incoming-1', text: latestText,sentTime:incomingSentTime } }, ...(previousReply ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'offer-1', text: previousReply } }] : []), ...olderMessages.map(node => ({ node }))] },
       } } } });
       if (payload.query.includes('mutation NaturalBookingFlow')) return Response.json({ data: {
         conversationFinishSendToFlow: { id: CONTACT, status: 'closed' },
@@ -649,6 +649,37 @@ test('a direct natural request works without depending on a captured keyword', a
   await f.handle.synchronizeHandoffs();
   assert.equal(f.calls.filter(c => c.payload.query?.includes('mutation NaturalBookingFlow')).length, 1);
   assert.equal(f.bookings().length, 0);
+});
+
+test('solicitudes coloquiales y preguntas de capacidad abren la agenda aunque la captura esté pendiente',async()=>{
+  for(const latestText of ['Pero agendame no?','Bueno tengo tiempo en la mañana, tienes la capacidad de agendarme?',
+    '¿Tienes la posibilidad de agendarme?','Hoy no tengo tiempo, pero quiero agendar mañana']){
+    const f=fixture({latestText,initial:{'last user freeform input':latestText,solicitud_agendamiento:'PENDIENTE'}});
+    await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1,latestText);
+    assert.equal(f.bookings().length,0);
+  }
+});
+
+test('una jornada tras la oferta abre opciones; una negativa, dato financiero o mensaje antiguo no las abre',async()=>{
+  const offer='¿Te gustaría agendar una asesoría virtual de 30 minutos con un asesor?';
+  const latestText='Ehhhh pero hoy no tengo tiempo, bueno si tengo tiempo pero en la noche';
+  const f=fixture({latestText,previousReply:offer,initial:{'last user freeform input':latestText}});
+  await f.handle.synchronizeHandoffs();assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+  for(const [text,previousReply,incomingSentTime]of [['No quiero agendar',offer],['No me agendes',offer],['No puedo en la mañana',offer],
+    ['en la noche','¿Puedes aumentar tu cuota?'],['Pero agendame no?',offer,new Date(START-6*60_000).toISOString()]]){
+    const blocked=fixture({latestText:text,previousReply,...(incomingSentTime?{incomingSentTime}:{}),initial:{'last user freeform input':text}});
+    await blocked.handle.synchronizeHandoffs();assert.equal(blocked.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0,text);
+  }
+});
+
+test('pedir noche explica el horario y permite continuar en la mañana sin reservar',async()=>{
+  const f=fixture();await f.request('start');
+  const response=await f.request('step','en la noche');
+  assert.match(response.message,/8:30/);assert.match(response.message,/5:00/);assert.match(response.message,/No tenemos horarios nocturnos/);
+  assert.doesNotMatch(response.message,/no est[aá] disponible|Booking through/);
+  assert.equal(f.bookings().length,0);assert.equal(JSON.parse(Buffer.from(response.state.split('.')[0],'base64url')).step,'period');
+  assert.match((await f.request('step','en la mañana')).message,/Qué día/);
 });
 
 test('aceptar una asesoría virtual activa el flujo una vez sin reservar',async()=>{
