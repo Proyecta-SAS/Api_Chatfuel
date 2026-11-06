@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.19';
+export const RELEASE_VERSION = '1.0.20';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -169,6 +169,15 @@ function offersBooking(value) {
   if (!/[¿?]/.test(text) || /\b(?:no|nunca)\b[^?!.]{0,70}\b(?:agend|coordin|organiz|program|reserv)/.test(text)) return false;
   return /\b(?:quiere|quieres|desea|deseas|le gustaria|te gustaria|podemos)\b[^?!.]{0,100}\b(?:agendar|coordinar|organizar|organicemos|agendemos|coordinemos|programar|reservar)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text)
     || /\b(?:agendamos|coordinamos|organizamos|programamos|le agendo|te agendo)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text);
+}
+function asksBookingPeriod(value) {
+  const text=normalize(value);
+  // A real scheduling invitation may omit question marks. Keep the calendar
+  // context and both periods so financial questions or business hours alone
+  // cannot turn a reply into appointment consent.
+  if (/\bno\s+(?:puedo|podemos|se puede)\s+(?:consultar|reservar|agendar)/.test(text)) return false;
+  return /\b(?:asesoria|llamada|cita|reunion|agendar|coordinar)\b/.test(text)
+    && /\b(?:prefieres|prefiere|prefieren)\b[^.!?]{0,90}\bmanana\b[^.!?]{0,30}\btarde\b/.test(text);
 }
 // Ofrece solo inicios libres verificados, repartidos a lo largo de la franja.
 // Deja al menos un intervalo de diez minutos entre las opciones ofrecidas.
@@ -484,7 +493,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             const acceptedOffer = confirmBooking(incoming.text)
               && preceding?.__typename === 'WhatsAppOutTextMessage' && offersBooking(preceding.text);
             const requestedAvailability=availabilityAnswer(incoming.text)
-              && preceding?.__typename==='WhatsAppOutTextMessage'&&offersBooking(preceding.text);
+              && preceding?.__typename==='WhatsAppOutTextMessage'
+              && (offersBooking(preceding.text)||asksBookingPeriod(preceding.text));
             const capturedIntent = yes(fields.solicitud_agendamiento) && fields.texto_solicitud_agendamiento
               && evidence(incoming.text) === evidence(fields.texto_solicitud_agendamiento);
             // A bare yes needs the immediately preceding call offer, even if an

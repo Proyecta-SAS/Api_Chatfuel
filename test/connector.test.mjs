@@ -716,6 +716,28 @@ test('pedir noche explica el horario y permite continuar en la mañana sin reser
   assert.match((await f.request('step','en la mañana')).message,/Qué día/);
 });
 
+test('elegir jornada tras invitación sin interrogación activa la agenda aunque la captura esté pendiente',async()=>{
+  const previousReply='Sí, podemos coordinar tu asesoría desde este chat 😊 Las asesorías se coordinan de lunes a viernes entre 8:30 a. m. y 5:00 p. m., hora de Colombia. No hay citas nocturnas ni de fin de semana. Si quieres, dime si prefieres mañana o tarde.';
+  for(const latestText of ['en la mañana','en la tarde','prefiero en la mañana']){
+    const f=fixture({latestText,previousReply,initial:{'last user freeform input':latestText,solicitud_agendamiento:'PENDIENTE'}});
+    await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+    assert.equal(f.bookings().length,0);
+  }
+});
+
+test('una jornada fuera de contexto de cita, rechazo o atención humana no inicia agenda',async()=>{
+  const prompts=['El banco atiende mañana o tarde. ¿Cuál prefieres?',
+    'Las asesorías se coordinan en la mañana o tarde.',
+    'Por este chat no puedo consultar agendas. Si prefieres mañana o tarde, llama al equipo.'];
+  for(const previousReply of prompts){
+    const f=fixture({latestText:'en la mañana',previousReply,initial:{'last user freeform input':'en la mañana'}});
+    await f.handle.synchronizeHandoffs();assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+  }
+  const f=fixture({latestText:'en la mañana',previousReply:'Coordinemos tu llamada. Si prefieres mañana o tarde, dime.',naturalStatus:'open',initial:{'last user freeform input':'en la mañana'}});
+  await f.handle.synchronizeHandoffs();assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+});
+
 test('aceptar una asesoría virtual activa el flujo una vez sin reservar',async()=>{
   const f=fixture({latestText:'sí',initial:{'last user freeform input':'sí'},previousReply:'¿Te gustaría agendar tu asesoría virtual de 30 minutos con Tatiana Chilito?'});
   await f.handle.synchronizeHandoffs();
