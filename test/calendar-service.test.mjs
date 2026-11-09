@@ -91,9 +91,10 @@ function fixture(store = memoryStore(), pool = advisors) {
   set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
-  await t.test('la agenda rechaza casos descartados antes de crear el evento',async()=>{
+  await t.test('la agenda rechaza casos descartados e incompletos antes de crear el evento',async()=>{
     for(const patch of [{rch_banco:'BBVA'},{rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'},
-      {rch_tiempo_pagando:'15 años'}]){
+      {rch_tiempo_pagando:'15 años'},{rch_plazo_inicial:''},{rch_banco:''},{rch_reportes_negativos:'desconocido'},
+      {rch_puede_aumentar_cuota:'desconocido'},{obligacion_vivienda_activa:''}]){
       const f=await create();const code=await f.profile();const current=await f.store.getProfile(code);
       await f.service.upsert({phone:current.phone,answers:{...current.data.answers,...patch}});
       await assert.rejects(f.service.book(code,request,'blocked-profile'),/RCH_NOT_ELIGIBLE|RCH_PROFILE_INCOMPLETE/);

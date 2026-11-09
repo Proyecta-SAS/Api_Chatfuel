@@ -134,8 +134,8 @@ test('al entrar a agenda conserva la corrección real y no repite tiempos financ
   assert.match(response.message,/mañana o en la tarde/);assert.doesNotMatch(response.message,/tomaste|llevas pagando/);
 });
 
-test('la agenda habitual no reinicia el perfil por capturas pendientes y confirma una llamada',async()=>{
-  const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'}});
+test('la agenda confirma solo un perfil aplicable y conserva el aviso final de la cita',async()=>{
+  const f=fixture();
   const start=await f.request('start');assert.match(start.message,/mañana o en la tarde/);
   const days=await f.request('step','mañana'),times=await f.request('step','1'),confirmation=await f.request('step','1');
   for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares/);
@@ -156,6 +156,22 @@ test('aceptación enfática y petición directa de horarios recuperan el flujo u
     assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
     assert.equal(f.bookings().length,0);
   }
+});
+
+test('un filtro pendiente no consulta ni reserva; solo pregunta el dato que falta',async()=>{
+  for(const initial of [{rch_banco:''},{rch_reportes_negativos:'desconocido'},
+    {rch_puede_aumentar_cuota:'desconocido'},{rch_plazo_inicial:'aproximadamente 20 años'},{rch_tiempo_pagando:''}]){
+    const f=fixture({initial});const result=await f.request('start');
+    assert.equal(result.done,'si');assert.equal(f.fields.rch_estado_elegibilidad,'PENDIENTE');
+    assert.equal(f.calls.filter(c=>c.url.endsWith('/availability')).length,0);assert.equal(f.bookings().length,0);
+  }
+});
+test('BBVA declarado en el chat bloquea agenda aunque la captura antigua diga Bancolombia',async()=>{
+  const f=fixture({bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'BBVA'},
+    {__typename:'WhatsAppOutTextMessage',text:'¿Con qué banco tienes actualmente tu crédito hipotecario?'}]});
+  const result=await f.request('start');assert.equal(f.fields.rch_banco,'BBVA');
+  assert.equal(f.fields.rch_estado_elegibilidad,'NO_APLICA');assert.equal(result.done,'si');
+  assert.equal(f.bookings().length,0);assert.equal(f.calls.filter(c=>c.url.endsWith('/availability')).length,0);
 });
 
 test('una credencial rechazada tras confirmar el crédito conserva los datos sin anunciar una reserva', async () => {

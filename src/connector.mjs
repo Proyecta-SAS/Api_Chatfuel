@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.22';
+export const RELEASE_VERSION = '1.0.23';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -553,7 +553,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const computed={rch_estado_elegibilidad:result.status,rch_motivo_elegibilidad:result.reason,
       rch_meses_restantes:result.remainingMonths===null?'':String(result.remainingMonths),rch_eligibilidad_version:RCH_POLICY_VERSION};
     await setAttributes(contactId,computed);
-    if(result.status!=='NO_APLICA')return null;
+    if(result.status==='APLICA')return null;
     const clientCode=await upsertLead(contactId,phone,{...fields,...computed});
     return reply(contactId,{step:result.status==='NO_APLICA'?'not_eligible':'eligibility_pending',clientCode},
       eligibilityMessage(result),{done:true,fields:{solicitud_agendamiento:'no',texto_solicitud_agendamiento:'PENDIENTE'}});

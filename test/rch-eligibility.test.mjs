@@ -7,6 +7,11 @@ test('la guía clasifica sin asignar puntaje y calcula meses restantes',()=>{
   const result=evaluateRchEligibility(profile);assert.equal(result.status,'APLICA');assert.equal(result.remainingMonths,120);
   assert.equal(result.score,undefined);
 });
+test('la guía mide tiempo restante y no impone antigüedad mínima ni confunde mora con reportes',()=>{
+  assert.equal(evaluateRchEligibility({...profile,rch_tiempo_pagando:'1 año'}).status,'APLICA');
+  assert.equal(evaluateRchEligibility({...profile,rch_tiempo_pagando:'19 años'}).status,'NO_APLICA');
+  assert.equal(evaluateRchEligibility({...profile,estado_pago:'en mora',rch_reportes_negativos:'desconocido'}).status,'PENDIENTE');
+});
 for(const bank of ['BBVA Colombia','Itaú','Credifamilia','Caja de compensación','Cooperativa']){
   test(`descarta la entidad excluida: ${bank}`,()=>assert.equal(evaluateRchEligibility({...profile,rch_banco:bank}).reason,'BANK_EXCLUDED'));
 }

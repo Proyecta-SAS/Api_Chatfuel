@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.22
+# Api_Chatfuel — V1.0.23
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -14,7 +14,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 
 - La IA realiza las cinco preguntas de la guía RCH del 6 de noviembre de 2026.
 - Rechaza entidades/productos excluidos, reportes negativos, falta de capacidad y cinco años o menos restantes.
-- Conserva PENDIENTE para datos desconocidos; la agenda habitual no reinicia el cuestionario por capturas incompletas.
+- Conserva PENDIENTE para datos desconocidos; pide únicamente el filtro faltante y bloquea horarios y reservas hasta confirmar APLICA.
 - Mueve los descartes determinísticos a `NO APLICA CHATFUEL` (`C370:UC_ELJQDE`), incluso si no se solicita una cita.
 - Verifica teléfono, embudo y etapa de origen; conserva citas y cambios manuales. Persiste fallos y los reintenta sin enviar mensajes.
 - Recupera las últimas respuestas explícitas sobre tiempos antes de agendar y sustituye capturas antiguas.
@@ -97,7 +97,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.22"` y
+Después del push, `/health` debe indicar `version: "1.0.23"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

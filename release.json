@@ -1,18 +1,18 @@
 {
-  "version": "1.0.21",
+  "version": "1.0.23",
   "component": "api-chatfuel",
   "runtime": "node24",
   "source_repository": "https://github.com/Proyecta-SAS/Api_Chatfuel",
-  "connector_sha256": "84c706fc87b1fd12247793c5a6f03deec43ec33b765437baaab1f31b3f0e6277",
+  "connector_sha256": "1f3242b0e2cd7c4738635e68d5388bdab5498e0a1c0c567dc7982770eb6e4755",
   "calendar_provider": "bitrix",
   "calendar_storage": "mysql",
   "calendar_independent": true,
   "external_crm_required": false,
-  "tests_expected": 160,
-  "tests_passed": 157,
+  "tests_expected": 173,
+  "tests_passed": 170,
   "tests_skipped": 3,
   "mysql_real_unit_test_executed": false,
-  "mysql_test_engine": "Simuladores locales; cita virtual por Zoom",
+  "mysql_test_engine": "Simuladores locales; elegibilidad obligatoria y respuestas reales",
   "standalone_start_verified": false,
   "reference_folder_required": false,
   "production_booking_verified": false,
@@ -50,5 +50,6 @@
   "eligibility_policy": "rch-2026-11-06",
   "eligibility_enforced_before_booking": true,
   "eligibility_pending_repeats_questionnaire": false,
-  "confirmed_customer_answers_reconciled": true
+  "confirmed_customer_answers_reconciled": true,
+  "eligibility_pending_blocks_booking": true
 }

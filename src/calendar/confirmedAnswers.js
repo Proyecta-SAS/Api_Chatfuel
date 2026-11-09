@@ -6,12 +6,28 @@ function questionField(text){
   // An acknowledgement can mention the original term before asking time paid.
   // Only the question itself identifies the field answered by the customer.
   const t=normalize(text.slice(text.lastIndexOf('¿')+1));
+  if(/(?:con que|cual).*banco|(?:banco|entidad).*credito/.test(t))return 'rch_banco';
+  if(/reportes? negativos?/.test(t))return 'rch_reportes_negativos';
+  if(/aumentar.*cuota/.test(t))return 'rch_puede_aumentar_cuota';
   if(/(?:plazo\s+(?:original|inicial)|anos.*(?:tomaste|adquiriste|originalmente))/.test(t))return 'rch_plazo_inicial';
   if(/(?:cuanto tiempo|hace cuanto|cuantos anos).*pagando/.test(t))return 'rch_tiempo_pagando';
   return null;
 }
 function answer(text,field){
   if(/[?¿]/.test(text))return null;
+  if(field==='rch_banco'){
+    const bank=String(text).trim();
+    if(!bank||bank.length>180||/\b(?:agend|reserv|asesor|empez|reinici)/.test(normalize(bank)))return null;
+    return /^(?:no se|no recuerdo|no sabe)$/.test(normalize(bank))?'desconocido':bank;
+  }
+  if(['rch_reportes_negativos','rch_puede_aumentar_cuota'].includes(field)){
+    const t=normalize(text).replace(/[.!¡,;:]/g,' ').replace(/\s+/g,' ').trim();
+    if(/^(?:si+|si+ claro|claro|claro que si|si por supuesto|si tengo|si los tengo|si puedo|puedo)$/.test(t))return 'si';
+    if(/^(?:no+|no+ limpio|no tengo|no los tengo|no puedo|no me es posible)$/.test(t))return 'no';
+    if(field==='rch_reportes_negativos'&&/^(?:tengo reportes negativos|si tengo reportes negativos|estoy reportado|estoy reportada)$/.test(t))return 'si';
+    if(field==='rch_reportes_negativos'&&/^(?:no tengo reportes negativos|estoy limpio|estoy limpia)$/.test(t))return 'no';
+    return 'desconocido';
+  }
   let t=normalize(text).replace(/[.!]+$/,'').trim();
   for(let i=0;i<3;i++)t=t.replace(/^(?:ya\s+)?te\s+(?:dije|habia dicho)\s+que\s+/,'')
     .replace(/^(?:como te dije|para aclarar)\s*[,;:]?\s*/,'')
@@ -37,7 +53,7 @@ export function reconcileQuestionnaireTimes(fields,messages=[]){
       && !/\bno quiero\b/.test(normalized)){
       for(const field of Object.keys(updates))delete updates[field];question=null;continue;
     }
-    if(question){const value=answer(text,question);if(value!==null)updates[question]=value;}
+    if(question){const value=answer(text,question);if(value!==null){updates[question]=value;if(question==='rch_banco')updates.banco_entidad=value;}}
     question=null;
   }
   return Object.fromEntries(Object.entries(updates).filter(([field,value])=>String(fields[field]??'')!==value));
