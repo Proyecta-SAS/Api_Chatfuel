@@ -44,6 +44,21 @@ export function createSchedulingStore(pool, executor = pool) {
         [body.contactName || profile.name, body.externalConversationId || null,
           JSON.stringify({ ...profile.data, ...body, answers: { ...profile.data?.answers, ...body.answers } }), profile.clientCode]);
     },
+    async hasActiveAppointment(code) {
+      const [rows] = await executor.execute("SELECT id FROM chatfuel_citas WHERE cliente_codigo=? AND estado IN ('pending','confirmed') LIMIT 1", [code]);
+      return rows.length > 0;
+    },
+    async saveRejectionSync(code, sync) {
+      await executor.execute("UPDATE chatfuel_perfiles SET datos=JSON_SET(datos,'$.rejectionSync',JSON_EXTRACT(?,'$')) WHERE codigo=?", [JSON.stringify(sync), code]);
+    },
+    async pendingRejectionProfiles(at) {
+      const [rows] = await executor.execute(`SELECT codigo FROM chatfuel_perfiles
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(datos,'$.rejectionSync.status'))='pending'
+          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(datos,'$.rejectionSync.reviewRequired')),'false')<>'true'
+          AND JSON_UNQUOTE(JSON_EXTRACT(datos,'$.rejectionSync.nextAttemptAt'))<=?
+        ORDER BY actualizado_en LIMIT 5`, [at]);
+      return rows.map(row => row.codigo);
+    },
     async getByKey(key) {
       const [rows] = await executor.execute('SELECT * FROM chatfuel_citas WHERE clave_idempotencia=?', [key]);
       return appointment(rows[0]);

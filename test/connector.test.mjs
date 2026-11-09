@@ -757,6 +757,16 @@ test('un caso excluido no consulta horarios ni crea citas',async()=>{
   }
 });
 
+test('el observador sincroniza el descarte aunque el cliente no solicite agendamiento',async()=>{
+  for(const initial of [{rch_banco:'BBVA'},{obligacion_vivienda_activa:'no'},
+    {rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'}]){
+    const f=fixture({initial,latestText:'gracias'});await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.url.endsWith('/prospecting-bot/lead')).length,1);
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+    assert.equal(f.bookings().length,0);
+  }
+});
+
 test('natural routing waits for the assistant reply before starting the calendar dialogue', async () => {
   const text = 'Quiero agendar una llamada';
   const f = fixture({ initial: { 'last user freeform input': text }, latestText: text, botReplied: false });

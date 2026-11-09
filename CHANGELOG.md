@@ -1,3 +1,9 @@
+# V1.0.22 - 2026-11-09
+
+- Sincroniza los descartes confirmados a NO APLICA CHATFUEL, también cuando el diálogo termina antes de ofrecer una cita.
+- Conserva negociaciones con cita, reservas pendientes, teléfonos sin verificar y etapas de otros canales.
+- Persiste los traslados pendientes y reintenta con espera progresiva; una corrección de los datos cancela el descarte pendiente.
+
 # V1.0.16 - 2026-11-06
 
 - Reconoce solicitudes coloquiales y preguntas sobre la capacidad de agendar, incluso con captura de intención pendiente.

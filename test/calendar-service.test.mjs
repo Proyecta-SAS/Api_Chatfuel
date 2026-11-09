@@ -28,6 +28,10 @@ function memoryStore() {
     async getProfile(code) { return profiles.get(code); },
     async saveProfile(profile, body) { profiles.set(profile.clientCode,{...profile,name:body.contactName||profile.name,
       data:{...profile.data,...body,answers:{...profile.data?.answers,...body.answers}}}); },
+    async hasActiveAppointment(code) { return [...bookings.values()].some(b=>b.clientCode===code&&['pending','confirmed'].includes(b.status)); },
+    async saveRejectionSync(code,sync) { const p=profiles.get(code);p.data={...p.data,rejectionSync:structuredClone(sync)}; },
+    async pendingRejectionProfiles(at) { return [...profiles.values()].filter(p=>p.data.rejectionSync?.status==='pending'
+      && !p.data.rejectionSync.reviewRequired && p.data.rejectionSync.nextAttemptAt<=at).map(p=>p.clientCode); },
     async getByKey(key) { return structuredClone([...bookings.values()].find(b=>b.key===key)); },
     async getAppointment(id) { return structuredClone(bookings.get(id)); },
     async reservations() { return [...bookings.values()].filter(b=>['pending','confirmed'].includes(b.status)); },
@@ -65,7 +69,7 @@ function fixture(store = memoryStore(), pool = advisors) {
       if(failCreate) throw new Error('Lost response');
       return id;
     }
-    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
+    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',UF_CRM_1584616588730:'573000000001',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
     if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');
       if(params.fields.STAGE_ID) stage=params.fields.STAGE_ID;
       if(!ignoreSummary && Object.hasOwn(params.fields,DEAL_SUMMARY_FIELD)) summary=params.fields[DEAL_SUMMARY_FIELD];
@@ -302,6 +306,25 @@ async function scenarios(t, create) {
   });
 }
 test('motor independiente con Bitrix simulado',async t=>scenarios(t,async()=>fixture()));
+
+test('persiste un descarte pendiente y el worker lo recupera después de una caída de Bitrix',async()=>{
+  const f=fixture();f.failStage=true;
+  const {clientId,rejectionSync}=await f.service.upsert({phone:'573000000001',answers:{rch_banco:'BBVA'}});
+  assert.equal(rejectionSync.status,'pending');assert.equal(f.stage,'C370:NEW');
+  const saved=await f.store.getProfile(clientId);assert.equal(saved.data.rejectionSync.attempts,1);
+  f.failStage=false;assert.equal(await f.service.retryPendingCrm(),0);
+  f.advance(31_000);assert.equal(await f.service.retryPendingCrm(),1);
+  assert.equal(f.stage,'C370:UC_ELJQDE');assert.equal((await f.store.getProfile(clientId)).data.rejectionSync.status,'completed');
+  assert.equal(f.events.length,0);assert.equal(await f.service.retryPendingCrm(),0);
+});
+
+test('una corrección del perfil cancela el descarte pendiente y no mueve la negociación',async()=>{
+  const f=fixture();f.failStage=true;
+  const {clientId}=await f.service.upsert({phone:'573000000001',answers:{rch_banco:'BBVA'}});
+  f.failStage=false;await f.service.upsert({phone:'573000000001',answers:{rch_banco:'Bancolombia'}});
+  f.advance(31_000);assert.equal(await f.service.retryPendingCrm(),0);
+  assert.equal(f.stage,'C370:NEW');assert.equal((await f.store.getProfile(clientId)).data.rejectionSync.reason,'NOT_DISQUALIFIED');
+});
 test('motor independiente con MySQL real: persistencia, locks y recuperación', {skip:!process.env.TEST_MYSQL_URL},async t=>{
   const mysql=(await import('mysql2/promise')).default;
   const uri=new URL(process.env.TEST_MYSQL_URL);uri.pathname='/';

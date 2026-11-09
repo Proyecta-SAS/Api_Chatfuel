@@ -8,6 +8,7 @@ import { confirmedCalendarOwner } from './confirmedEvent.js';
 import { DEAL_SUMMARY_FIELD, timelineSummary } from './profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
 import { evaluateRchEligibility } from './rchEligibility.js';
+import { synchronizeRejection } from './rejection.js';
 
 export const APPOINTMENT_STAGE = 'C370:EXECUTING';
 export const APPOINTMENT_DATE_FIELD = 'UF_CRM_1726241234';
@@ -71,7 +72,30 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         }
       });
     }
-    return { ok: true, persisted: true, clientId: profile.clientCode };
+    const rejectionSync = await syncRejectedProfile(profile.clientCode);
+    return { ok: true, persisted: true, clientId: profile.clientCode, rejectionSync };
+  }
+  async function syncRejectedProfile(code) {
+    const profile = await store.getProfile(code);
+    if (!profile) return null;
+    const previous = profile.data?.rejectionSync;
+    const fingerprint = createHash('sha256').update(JSON.stringify(profile.data?.answers || {})).digest('hex');
+    if (previous?.fingerprint === fingerprint && (previous.status !== 'pending'
+      || previous.reviewRequired || Date.parse(previous.nextAttemptAt) > now())) return previous;
+    const attempts = (previous?.fingerprint === fingerprint ? Number(previous.attempts || 0) : 0) + 1;
+    let result;
+    try {
+      const registered = evaluateRchEligibility(profile.data?.answers).status === 'NO_APLICA'
+        ? await database.findClienteByPhone(profile.phone) : null;
+      result = await synchronizeRejection({ profile, registered, store, bitrix });
+    } catch (error) {
+      result = { status:'pending', reason:/^[A-Z_]{1,64}$/.test(error.code || '') ? error.code : 'REJECTION_SYNC_UNAVAILABLE' };
+    }
+    if (result.status === 'skipped' && result.reason === 'NOT_DISQUALIFIED' && !previous) return null;
+    result = { ...result, fingerprint, attempts, reviewRequired:result.status==='pending' && attempts>=8,
+      nextAttemptAt:result.status==='pending' ? new Date(now()+Math.min(1_800_000,30_000*2**Math.min(attempts-1,6))).toISOString() : null };
+    await store.saveRejectionSync(code, result);
+    return result;
   }
   async function calendars(from, to, db = store) {
     const payload = await calendar.call('calendar.accessibility.get', { from, to, users: advisors.map(a => Number(a.bitrixUserId)) });
@@ -265,7 +289,9 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     async retryPendingCrm() {
       const ids = await store.pendingCrmAppointments(new Date(now()).toISOString());
       for (const id of ids) await syncCrm(id);
-      return ids.length;
+      const rejections = await store.pendingRejectionProfiles(new Date(now()).toISOString());
+      for (const code of rejections) await syncRejectedProfile(code);
+      return ids.length + rejections.length;
     },
     async request(path, body, key) {
       if (path === '/api/v1/leads/resolve') return resolve(body);

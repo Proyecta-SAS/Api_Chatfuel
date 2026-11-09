@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.21';
+export const RELEASE_VERSION = '1.0.22';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -238,7 +238,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   const handoffStatus = { enabled: env.HANDOFF_SYNC_ENABLED === 'true', connected: false,
     lastSyncAt: null, synchronized: 0, bookingFlowsStarted: 0, lastError: null,
     incomingRecoveryEnabled: env.INCOMING_RECOVERY_ENABLED === 'true', incomingRecovered: 0,
-    incomingRecoveryLastError: null };
+    incomingRecoveryLastError: null, rejectionSyncLastError:null };
   let syncing = null;
   // Contact search can briefly return an old attribute snapshot after a write.
   // Keep successful writes locally too, and use a separate schema marker so an
@@ -468,6 +468,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           const phone = String(node.phone ?? '').replace(/\D/g, '');
           if (!/^\d{8,15}$/.test(phone)) continue;
           const fields = attributeMap(node.attributes);
+          // A bank/product rejection can finish before any booking intent.
+          // Persist and synchronize it without starting a flow or sending a message.
+          if (evaluateRchEligibility(fields).status === 'NO_APLICA') {
+            try {
+              await upsertLead(node.id, phone, fields, {displayName:node.name});
+              handoffStatus.rejectionSyncLastError = null;
+            } catch { handoffStatus.rejectionSyncLastError = 'REJECTION_SYNC_FAILED'; }
+            continue;
+          }
           if (handoffStatus.incomingRecoveryEnabled && !node.assignee && node.salesStageV2 === 'New'
             && !node.unhandledSwitchToHuman) {
             if (await recoverUnassignedIncoming(node)) continue;
@@ -550,8 +559,6 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       eligibilityMessage(result),{done:true,fields:{solicitud_agendamiento:'no',texto_solicitud_agendamiento:'PENDIENTE'}});
   }
   async function profileOrOptions(contactId, phone, fields) {
-    if (no(fields.obligacion_vivienda_activa)) return reply(contactId, { step: 'out_of_scope' },
-      'Esta agenda es para revisar créditos hipotecarios o leasing habitacional activos. Como indicaste que no tienes uno vigente, puedes solicitar a un asesor que revise tu caso.', { done: true });
     const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
     if (!String(fields.nombre_completo ?? '').trim()) return reply(contactId, { step: 'name' }, 'Para agendar con el asesor, ¿cuál es tu nombre completo?');
     if (!String(fields.ciudad_municipio ?? '').trim()) return reply(contactId, { step: 'city' }, '¿En qué ciudad o municipio estás?');
