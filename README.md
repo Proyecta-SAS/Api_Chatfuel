@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.24
+# Api_Chatfuel — V1.0.25
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -20,6 +20,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - Recupera las últimas respuestas explícitas sobre tiempos antes de agendar y sustituye capturas antiguas.
 - Sincroniza también los descartes explícitos de la conversación aunque la captura automática esté incompleta, incluidos libranza y producto no hipotecario. No usa mensajes del bot como evidencia.
 - Los resúmenes identifican Chatfuel y distinguen descarte, perfilamiento, atención humana y solicitud de agenda; un descarte no se presenta como una cita pendiente. Las cortesías no duplican la sincronización del mismo perfil descartado.
+- Conserva el texto original en MySQL y envía a Bitrix una representación compatible sin emojis de cuatro bytes, para evitar resúmenes truncados. La actualización de NO APLICA se ejecuta independientemente del campo resumen.
 
 - `/registrar-cliente?id=...` consulta la negociación y guarda su contacto en MySQL.
 - Conserva el consentimiento, franja, dos días y hasta tres horarios separados.

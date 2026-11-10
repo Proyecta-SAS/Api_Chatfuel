@@ -267,6 +267,30 @@ async function scenarios(t, create) {
     assert.equal(f.summary,body.summary);
     assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
   });
+  await t.test('emojis en el nombre no truncan el resumen y se conserva el original en el perfil local',async()=>{
+    const f=await create();const body={phone:'573000000001',
+      summary:'RESUMEN Y FEEDBACK DE CHATFUEL\nJosé 😊\nEntidad: BBVA. Motivo: BANK_EXCLUDED.',answers:{rch_banco:'BBVA'}};
+    const result=await f.service.upsert(body);
+    assert.equal(f.stage,'C370:UC_ELJQDE');
+    assert.equal(f.summary,'RESUMEN Y FEEDBACK DE CHATFUEL\nJosé \nEntidad: BBVA. Motivo: BANK_EXCLUDED.');
+    assert.equal((await f.store.getProfile(result.clientId)).data.summary,body.summary);
+    await f.service.upsert({...body,summary:body.summary.replace('😊','🥰')});
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+    assert.match(f.calls.find(c=>c.method==='crm.timeline.comment.add').params.fields.COMMENT,/BANK_EXCLUDED/);
+    assert.equal(f.events.length,0);
+  });
+  await t.test('un error del campo resumen no bloquea el descarte ni duplica la etapa al recuperarse',async()=>{
+    const f=await create();f.ignoreSummary=true;
+    const body={phone:'573000000001',summary:'Descarte por entidad',answers:{rch_banco:'BBVA'}};
+    await assert.rejects(f.service.upsert(body),/SUMMARY_NOT_CONFIRMED/);
+    assert.equal(f.stage,'C370:UC_ELJQDE');
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,0);
+    f.ignoreSummary=false;await f.service.upsert(body);await f.service.upsert(body);
+    assert.equal(f.summary,body.summary);
+    assert.equal(f.calls.filter(c=>c.method==='crm.deal.update'&&c.params.fields.STAGE_ID).length,1);
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+    assert.equal(f.events.length,0);
+  });
   await t.test('sin negociación registrada no escribe resumen ni comentario',async()=>{
     const f=await create();f.registered=null;
     await f.service.upsert({phone:'573000000001',summary:'Perfil local'});

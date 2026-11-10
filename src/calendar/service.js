@@ -5,7 +5,7 @@ import { bogotaToday, candidateDates, parseBitrixDate, weekdayForDate } from './
 import { calculateAdvisorDateSlots } from './appointmentAdvisorAvailability.js';
 import { requireBitrixEventId } from './appointmentBooking.js';
 import { confirmedCalendarOwner } from './confirmedEvent.js';
-import { DEAL_SUMMARY_FIELD, timelineSummary } from './profileSummary.js';
+import { DEAL_SUMMARY_FIELD, timelineSummary, bitrixSummaryText } from './profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
 import { evaluateRchEligibility } from './rchEligibility.js';
 import { synchronizeRejection } from './rejection.js';
@@ -50,29 +50,32 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     const result = await resolve({ phone: body.phone, clientCode: body.externalLeadId });
     const profile = await store.getProfile(result.data.clientCode);
     await store.saveProfile(profile, body);
+    // Stage synchronization is independent from rendering a CRM summary. A text
+    // field failure must not prevent a verified commercial rejection.
+    const rejectionSync = await syncRejectedProfile(profile.clientCode);
     const registered = await database.findClienteByPhone(body.phone);
     // Profiles are local. An existing registered deal receives a deduplicated
     // summary; a missing match never creates an unrelated Bitrix deal.
     if (registered && body.summary) {
       const id = String(registered.id_negociacion);
+      const summary = bitrixSummaryText(body.summary);
       await store.withLock('profile-summary:' + id, async db => {
         const current = await deal(id);
         // A summary field write is safe to retry. Verify it before claiming a comment,
         // so a failure cannot lose the comment or report the profile as synchronized.
-        if (current[DEAL_SUMMARY_FIELD] !== body.summary) {
-          if (await bitrix.call('crm.deal.update', { id, fields: { [DEAL_SUMMARY_FIELD]: body.summary } }) !== true
-            || (await deal(id))[DEAL_SUMMARY_FIELD] !== body.summary) fail('SUMMARY_NOT_CONFIRMED');
+        if (current[DEAL_SUMMARY_FIELD] !== summary) {
+          if (await bitrix.call('crm.deal.update', { id, fields: { [DEAL_SUMMARY_FIELD]: summary } }) !== true
+            || (await deal(id))[DEAL_SUMMARY_FIELD] !== summary) fail('SUMMARY_NOT_CONFIRMED');
         }
-        const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${body.summary}`).digest('hex');
+        const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${summary}`).digest('hex');
         if (await db.claimComment(hash, id)) {
           const commentId = await bitrix.call('crm.timeline.comment.add', { fields: {
-            ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(body.summary),
+            ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(summary),
           } });
           await db.confirmComment(hash, requireBitrixEventId(commentId));
         }
       });
     }
-    const rejectionSync = await syncRejectedProfile(profile.clientCode);
     return { ok: true, persisted: true, clientId: profile.clientCode, rejectionSync };
   }
   async function syncRejectedProfile(code) {
