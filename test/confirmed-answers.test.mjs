@@ -33,3 +33,21 @@ test('los filtros binarios usan la pregunta real y no equiparan mora con reporte
   assert.deepEqual(reconcileQuestionnaireTimes({rch_reportes_negativos:'no'},[incoming('Estoy en mora'),reports]),{rch_reportes_negativos:'desconocido'});
   assert.deepEqual(reconcileQuestionnaireTimes({rch_puede_aumentar_cuota:'si'},[incoming('No'),out('¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?')]),{rch_puede_aumentar_cuota:'no'});
 });
+
+test('recupera descartes explícitos aun cuando la campaña no expone la pregunta del banco',()=>{
+  for(const [text,expected] of [
+    ['BBVA',{rch_banco:'BBVA',banco_entidad:'BBVA'}],
+    ['No disculpa no es hipotecario',{tipo_obligacion:'no hipotecario',obligacion_vivienda_activa:'no'}],
+    ['Es de libranza',{tipo_obligacion:'libranza',obligacion_vivienda_activa:'no'}],
+    ['No señorita. Mi caso es que tengo una libranza con SUDAMERIS y pago mensualmente 1.250.000.',{tipo_obligacion:'libranza',obligacion_vivienda_activa:'no'}],
+  ]) assert.deepEqual(reconcileQuestionnaireTimes({},[incoming('Gracias'),out('Con gusto'),incoming(text)]),expected);
+});
+
+test('no descarta por preguntas, productos adicionales, menciones del bot ni préstamos anteriores',()=>{
+  for(const text of ['¿La libranza aplica?','Tengo una libranza y un crédito hipotecario',
+    'También tengo una libranza','Antes tenía una libranza','Mi crédito no es de libranza',
+    'Es de leasing habitacional','Mi caso es diferente','Más o menos','¿BBVA aplica?']){
+    assert.deepEqual(reconcileQuestionnaireTimes({},[incoming(text)]),{},text);
+  }
+  assert.deepEqual(reconcileQuestionnaireTimes({},[out('Tu libranza no aplica')]),{});
+});

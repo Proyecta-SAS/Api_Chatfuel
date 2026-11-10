@@ -38,3 +38,12 @@ test('interpreta unidades, meses y medios años sin convertir rangos ni aproxima
   assert.equal(durationMonths('20',{bareYears:true}),240);assert.equal(durationMonths('20'),null);
   assert.equal(durationMonths('aproximadamente 5 años'),null);assert.equal(durationMonths('3 a 5 años'),null);
 });
+
+test('los productos explícitos fuera de vivienda no habilitan agenda; una mezcla requiere aclarar',()=>{
+  for(const tipo_obligacion of ['libranza','crédito de libranza','consumo','tarjeta de crédito','no hipotecario']){
+    assert.equal(evaluateRchEligibility({...profile,tipo_obligacion}).reason,'PRODUCT_NOT_ELIGIBLE');
+  }
+  for(const tipo_obligacion of ['hipotecario','leasing habitacional','hipotecario y libranza']){
+    assert.equal(evaluateRchEligibility({...profile,tipo_obligacion}).status,'APLICA');
+  }
+});

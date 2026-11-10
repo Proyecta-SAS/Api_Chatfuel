@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.23';
+export const RELEASE_VERSION = '1.0.24';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -38,7 +38,7 @@ const profileText = value => {
 };
 const declared = (fields, ...names) => names.map(name => profileText(fields[name])).find(value => value !== null) ?? null;
 
-export function profileComment(fields, { handoff = false, displayName = '' } = {}) {
+export function profileComment(fields, { handoff = false, displayName = '', booking = false } = {}) {
   const eligibility = evaluateRchEligibility(fields);
   const details = [];
   const pending = [];
@@ -55,6 +55,8 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
   if (yes(active)) details.push(`Confirma una obligación de vivienda activa${declared(fields, 'tipo_obligacion') ? ` de tipo ${declared(fields, 'tipo_obligacion')}` : ''}.`);
   else if (no(active)) details.push('Indica que no tiene una obligación de vivienda activa.');
   else pending.push('confirmación de obligación de vivienda activa');
+  const product = declared(fields, 'tipo_obligacion');
+  if (product && !yes(active)) details.push(`Producto declarado: ${product}.`);
   const bank = declared(fields, 'rch_banco', 'banco_entidad');
   if (bank) details.push(`Entidad del crédito: ${bank}.`);
   else pending.push('banco o entidad');
@@ -116,9 +118,14 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
     ['senal_info_adicional', 'Solicitud registrada de información adicional.'],
   ]) if (yes(declared(fields, field))) interests.push(label);
   if (!interests.length) interests.push('No hay señales adicionales de interés o consultas registradas.');
-  const followUp = [handoff
-    ? 'Motivo de atención: transferencia al equipo humano desde Chatfuel. Revisar el contexto y los datos pendientes antes de orientar el caso.'
-    : 'Motivo de atención: solicitud de agendamiento RCH. La cita está pendiente de confirmación técnica en Bitrix.'];
+  const rejected = eligibility.status === 'NO_APLICA';
+  const followUp = [rejected
+    ? 'Motivo de atención: descarte del perfilamiento de reducción de crédito hipotecario por una condición declarada por el cliente. Este registro no acredita una solicitud ni una reserva de cita.'
+    : handoff
+      ? 'Motivo de atención: transferencia al equipo humano desde Chatfuel. Revisar el contexto y los datos pendientes antes de orientar el caso.'
+      : booking
+        ? 'Motivo de atención: solicitud de agendamiento. Este perfilamiento no confirma una reserva; verificar el resultado técnico de la agenda en Bitrix.'
+        : 'Motivo de atención: perfilamiento por WhatsApp con Chatfuel. No se registra una reserva de cita desde este resumen.'];
   const analysis = ['Información basada en las respuestas registradas; requiere validación del asesor.'];
   analysis.push(`Filtro comercial inicial ${RCH_POLICY_VERSION}: ${eligibility.status}. Motivo: ${eligibility.reason}. No equivale a aprobación financiera ni garantiza ahorro.`);
   const nextSteps = [];
@@ -139,6 +146,11 @@ export function profileComment(fields, { handoff = false, displayName = '' } = {
   analysis.push('Este feedback no determina viabilidad, aprobación ni ahorro y no asigna un puntaje de calificación.');
   nextSteps.push('Validar banco, saldo, modalidad y plazo con información actualizada del cliente.');
   nextSteps.push(pending.length ? 'Completar los datos pendientes antes de emitir una recomendación.' : 'Corroborar los datos recopilados y resolver las preguntas del cliente.');
+  if (rejected) {
+    nextSteps.splice(0, nextSteps.length,
+      'Registrar el motivo confirmado en NO APLICA CHATFUEL, respetando citas existentes y cambios manuales de etapa.',
+      'No continuar el cuestionario ni ofrecer agenda para esta solicitud descartada. No se necesitan los demás datos para justificar este descarte.');
+  }
   const sections = [details, interests, followUp, analysis, nextSteps,
     [pending.length ? `Datos pendientes: ${pending.join('; ')}.` : 'Sin pendientes en los datos básicos de perfilamiento; falta su validación por el asesor.']];
   return [FEEDBACK_HEADINGS[0], ...sections.map((lines, i) =>
@@ -380,7 +392,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
     return askPeriod(contactId, clientCode);
   }
-  async function upsertLead(contactId, phone, fields, { handoff = false, displayName = '' } = {}) {
+  async function upsertLead(contactId, phone, fields, { handoff = false, displayName = '', booking = false } = {}) {
     let clientCode = fields.crm_30x_codigo;
     if (!clientCode) {
       const resolved = await crm('/api/v1/leads/resolve', { phone });
@@ -394,7 +406,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       externalConversationId: contactId, source: 'whatsapp',
       status: handoff ? 'requiere_asesor' : 'perfilamiento_iniciado',
       ...(fields.correo_contacto ? { email: fields.correo_contacto } : {}),
-      summary: profileComment(fields, { handoff, displayName }),
+      summary: profileComment(fields, { handoff, displayName, booking }),
       ...(handoff && fields['last user freeform input'] ? { lastMessage: String(fields['last user freeform input']).slice(0, 2000) } : {}),
       answers: { ...Object.fromEntries(PROFILE.filter(name => name !== 'last user freeform input')
         .map(name => [name, fields[name] ?? null])),
@@ -467,12 +479,32 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           if (!/^wa_\d+_\d+_\d{8,15}$/.test(node.id)) continue;
           const phone = String(node.phone ?? '').replace(/\D/g, '');
           if (!/^\d{8,15}$/.test(phone)) continue;
-          const fields = attributeMap(node.attributes);
+          let fields = attributeMap(node.attributes);
+          // Use the same customer-confirmed evidence as the booking gate. A
+          // rejection may occur before Fuely captures any questionnaire field.
+          // Unassigned chats still go through the existing incoming recovery.
+          if (node.assignee || evaluateRchEligibility(fields).status === 'NO_APLICA') {
+            try { fields = (await contact(node.id)).fields; }
+            catch { handoffStatus.rejectionSyncLastError = 'PROFILE_EVIDENCE_UNAVAILABLE'; continue; }
+          }
           // A bank/product rejection can finish before any booking intent.
           // Persist and synchronize it without starting a flow or sending a message.
           if (evaluateRchEligibility(fields).status === 'NO_APLICA') {
             try {
-              await upsertLead(node.id, phone, fields, {displayName:node.name});
+              const eligibility=evaluateRchEligibility(fields);
+              const computed={rch_estado_elegibilidad:eligibility.status,rch_motivo_elegibilidad:eligibility.reason,
+                rch_meses_restantes:eligibility.remainingMonths===null?'':String(eligibility.remainingMonths),rch_eligibilidad_version:RCH_POLICY_VERSION};
+              const updates=Object.fromEntries(Object.entries(computed).filter(([name,value])=>String(fields[name]??'')!==value));
+              if(Object.keys(updates).length)await setAttributes(node.id,updates);
+              Object.assign(fields,computed);
+              const fingerprint = createHash('sha256').update(JSON.stringify([PROFILE_FEEDBACK_VERSION,node.id,phone,
+                ...PROFILE.filter(name=>name!=='last user freeform input').map(name=>String(fields[name]??''))])).digest('hex');
+              if (synchronizedProfiles.get(node.id) === fingerprint) continue;
+              const clientCode=await upsertLead(node.id, phone, fields, {displayName:node.name});
+              if(fields.crm_30x_codigo!==clientCode)await setAttributes(node.id,{crm_30x_codigo:clientCode});
+              synchronizedProfiles.set(node.id,fingerprint);
+              if(synchronizedProfiles.size>5000)synchronizedProfiles.delete(synchronizedProfiles.keys().next().value);
+              synchronized++;
               handoffStatus.rejectionSyncLastError = null;
             } catch { handoffStatus.rejectionSyncLastError = 'REJECTION_SYNC_FAILED'; }
             continue;
@@ -564,7 +596,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     if (!String(fields.ciudad_municipio ?? '').trim()) return reply(contactId, { step: 'city' }, '¿En qué ciudad o municipio estás?');
     if (!yes(fields.obligacion_vivienda_activa)) return reply(contactId, { step: 'active' },
       '¿Actualmente tienes un crédito hipotecario o leasing habitacional que todavía estás pagando? Responde SÍ o NO.');
-    const clientCode = await upsertLead(contactId, phone, fields);
+    const clientCode = await upsertLead(contactId, phone, fields, {booking:true});
     await setAttributes(contactId, { crm_30x_codigo: clientCode });
     return askPeriod(contactId, clientCode,nightPreference(fields['last user freeform input'])?{intro:nightExplanation}:{});
   }

@@ -32,7 +32,9 @@ export function evaluateRchEligibility(fields = {}, { requireActive = false } = 
   const paidMonths = durationMonths(fields.rch_tiempo_pagando);
   const remainingMonths = originalMonths !== null && paidMonths !== null && paidMonths <= originalMonths ? originalMonths-paidMonths : null;
   const result = (status,reason,missing=[]) => ({status,reason,missing,originalMonths,paidMonths,remainingMonths,policyVersion:RCH_POLICY_VERSION});
-  if (/libre\s+inversion/.test(product) || binary(fields.obligacion_vivienda_activa) === false) return result('NO_APLICA','PRODUCT_NOT_ELIGIBLE');
+  // A second non-housing product does not disqualify a declared housing loan.
+  const nonHousing = /^(?:(?:credito|prestamo)\s+(?:de\s+)?)?(?:libre\s+inversion|libranza|consumo|tarjeta(?:\s+de\s+credito)?|no\s+hipotecario)[.!]*$/;
+  if (nonHousing.test(product) || binary(fields.obligacion_vivienda_activa) === false) return result('NO_APLICA','PRODUCT_NOT_ELIGIBLE');
   // Negated or historical bank names are ambiguous, not grounds for rejection.
   const ambiguousBank = bank && /\b(?:no|antes|anterior|pero)\b/.test(bank);
   if (bank && !ambiguousBank && /\bbbva\b|\bitau\b|\bcredi\s?familia\b|\bcajas?\s+de\s+compensacion\b|\bcooperativas?\b/.test(bank)) return result('NO_APLICA','BANK_EXCLUDED');

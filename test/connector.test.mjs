@@ -553,7 +553,7 @@ test('booking profile uses legacy facts as fallback and keeps reservation unconf
   const lead = f.calls.find(c => c.url.endsWith('/prospecting-bot/lead')).payload;
   assert.match(lead.summary, /Entidad del crédito: Caja Social/);
   assert.match(lead.summary, /años: entre 2 y 3/);
-  assert.match(lead.summary, /pendiente de confirmación técnica en Bitrix/);
+  assert.match(lead.summary, /no confirma una reserva/);
   assert.doesNotMatch(lead.summary, /Datos pendientes: cobertura de tasa Mi Casa Ya o FRECH; saldo pendiente en dinero/);
   assert.match(lead.summary,/Filtro comercial inicial.*APLICA/);
   assert.doesNotMatch(lead.summary, /número de cuotas vencidas sin pagar/);
@@ -781,6 +781,37 @@ test('el observador sincroniza el descarte aunque el cliente no solicite agendam
     assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
     assert.equal(f.bookings().length,0);
   }
+});
+
+test('el observador recupera los cuatro tipos de descarte del informe y no repite la sincronización por cortesías',async()=>{
+  for(const [text,reason] of [['BBVA','BANK_EXCLUDED'],['No disculpa no es hipotecario','PRODUCT_NOT_ELIGIBLE'],
+    ['Es de libranza','PRODUCT_NOT_ELIGIBLE'],['No señorita. Mi caso es que tengo una libranza con SUDAMERIS y pago mensualmente 1.250.000.','PRODUCT_NOT_ELIGIBLE']]){
+    const f=fixture({initial:{rch_banco:'',obligacion_vivienda_activa:''},bookingMessages:[
+      {__typename:'WhatsAppOutTextMessage',text:'Con gusto'},
+      {__typename:'WhatsAppInTextMessage',text:'Gracias'},
+      {__typename:'WhatsAppInTextMessage',text}]});
+    await f.handle.synchronizeHandoffs();
+    f.fields['last user freeform input']='Ok gracias';
+    await f.handle.synchronizeHandoffs();
+    assert.equal(f.fields.rch_motivo_elegibilidad,reason);
+    const writes=f.calls.filter(c=>c.url.endsWith('/prospecting-bot/lead'));
+    assert.equal(writes.length,1);assert.match(writes[0].payload.summary,/descarte del perfilamiento/);
+    assert.doesNotMatch(writes[0].payload.summary,/cita está pendiente|solicitud de agendamiento/);
+    assert.equal(f.calls.filter(c=>c.url.endsWith('/availability')||c.url.endsWith('/appointments')||c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+  }
+});
+
+test('los resúmenes identifican Chatfuel y distinguen descarte, perfilamiento, agenda y atención humana',()=>{
+  const fields={rch_banco:'BBVA'};
+  for(const options of [{},{booking:true},{handoff:true}]){
+    const summary=profileComment(fields,options);
+    assert.match(summary,/RESUMEN Y FEEDBACK DE CHATFUEL/);
+    assert.match(summary,/BANK_EXCLUDED/);assert.match(summary,/No continuar el cuestionario/);
+    assert.doesNotMatch(summary,/DALIA|cita está pendiente|solicitud de agendamiento|Completar los datos pendientes/);
+  }
+  assert.match(profileComment({}),/Motivo de atención: perfilamiento por WhatsApp/);
+  assert.match(profileComment({},{booking:true}),/Motivo de atención: solicitud de agendamiento/);
+  assert.match(profileComment({},{handoff:true}),/Motivo de atención: transferencia al equipo humano/);
 });
 
 test('natural routing waits for the assistant reply before starting the calendar dialogue', async () => {

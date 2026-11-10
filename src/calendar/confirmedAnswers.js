@@ -39,6 +39,19 @@ function answer(text,field){
   return null;
 }
 
+function explicitProduct(text) {
+  const t=normalize(text).replace(/[.!]+$/,'')
+    .replace(/^(?:no senorita[.,]?\s*)?mi caso es que\s+/,'');
+  if (/[?¿]/.test(t)) return null;
+  // Do not reject somebody who has both a housing loan and another product,
+  // mentions a past loan, or merely asks about a product.
+  if (/\b(?:antes|anterior|tenia|tuve|tambien|ademas|otro|otra)\b/.test(t)) return null;
+  if (/^(?:no\s+)?(?:disculpa\s+)?no es (?:un credito )?hipotecario$/.test(t)) return 'no hipotecario';
+  if (/hipotec|vivienda|leasing/.test(t)) return null;
+  const product=t.match(/^(?:es\s+(?:un\s+credito\s+)?de\s+|(?:yo\s+)?tengo\s+(?:un\s+credito\s+de\s+|una?\s+)|mi credito es\s+(?:de\s+)?)(libranza|libre inversion|consumo|tarjeta de credito)\b/);
+  return product?.[1] || (/^(?:libranza|libre inversion|consumo|tarjeta de credito)$/.test(t)?t:null);
+}
+
 // Only explicit customer answers to the actual preceding question can replace
 // captured values. The latest correction wins; bot examples are never facts.
 export function reconcileQuestionnaireTimes(fields,messages=[]){
@@ -53,7 +66,14 @@ export function reconcileQuestionnaireTimes(fields,messages=[]){
       && !/\bno quiero\b/.test(normalized)){
       for(const field of Object.keys(updates))delete updates[field];question=null;continue;
     }
-    if(question){const value=answer(text,question);if(value!==null){updates[question]=value;if(question==='rch_banco')updates.banco_entidad=value;}}
+    const product=explicitProduct(text);
+    if(product){updates.tipo_obligacion=product;updates.obligacion_vivienda_activa='no';}
+    else if(question){const value=answer(text,question);if(value!==null){updates[question]=value;if(question==='rch_banco')updates.banco_entidad=value;}}
+    // Campaign greetings can be template nodes without readable question text.
+    // Only an unambiguous standalone entity is recovered in that situation.
+    if(!question && /^(?:con (?:el )?(?:banco )?)?bbva(?: colombia)?[.!]*$/.test(normalized)){
+      updates.rch_banco=text.trim();updates.banco_entidad=text.trim();
+    }
     question=null;
   }
   return Object.fromEntries(Object.entries(updates).filter(([field,value])=>String(fields[field]??'')!==value));
