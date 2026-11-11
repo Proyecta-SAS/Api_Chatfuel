@@ -178,7 +178,9 @@ test('la agenda confirma solo un perfil aplicable y conserva el aviso final de l
 });
 
 test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{
-  for(const text of ['Que siiiiiii','Listo dame los horarios']){
+  for(const text of ['Que siiiiiii','Listo dame los horarios','Si me gustaría','Sí, me gustaría',
+    'de acuerdo','sí claro','me parece bien','dale','listo','adelante','sigamos',
+    'sí, claro, me gustaría mucho','ok gracias','Sí señora','👍']){
     const f=fixture({latestText:text,initial:{'last user freeform input':text},previousReply:'¿Te gustaría agendar una llamada de 30 minutos con un asesor?'});
     await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
     assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);

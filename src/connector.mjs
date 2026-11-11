@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.26';
+export const RELEASE_VERSION = '1.0.27';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -174,8 +174,20 @@ function availabilityAnswer(value) {
 }
 const nightPreference=value=>/\b(?:en|por) la noche\b|^noche[.!?]*$/.test(normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim());
 const nightExplanation='Las asesorías se coordinan de lunes a viernes, entre las 8:30 a. m. y las 5:00 p. m., hora de Colombia. No tenemos horarios nocturnos; podemos revisar otro día 😊.';
-const confirmBooking = value => yes(value) || /^(?:que\s+)?si{1,12}(?:\s+por favor)?[.!?\s]*$/.test(normalize(value))
-  || /^(claro(?: que si)?|dale|vale|listo|perfecto|por supuesto|esta bien|si por favor|confirmado)[.!\s]*$/.test(normalize(value));
+function confirmBooking(value) {
+  if (yes(value)) return true;
+  const raw=normalize(value);
+  if (/^[\s👍👌✅\uFE0F]+$/u.test(raw)) return true;
+  if (/[¿?]/.test(raw)) return false;
+  const text=raw.replace(/[.!¡,;:]/g,' ')
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,' ').replace(/\s+/g,' ').trim();
+  const affirmative='(?:que )?si{1,12}|sip|sipi|claro(?: que si)?|de acuerdo|'
+    +'me gustaria(?: mucho)?|me interesa|me parece (?:bien|perfecto)|'
+    +'dale+|vale|listo+|perfecto|por supuesto|esta bien|correcto|'
+    +'acepto|confirmo|confirmado|adelante|sigamos|continuemos|hagamoslo|'
+    +'genial|ok|okay|okey|por favor';
+  return new RegExp(`^(?:${affirmative})(?: (?:${affirmative}|porfa|gracias|muchas gracias|senor|senora|senorita))*$`).test(text);
+}
 function offersBooking(value) {
   const text = normalize(value);
   if (!/[¿?]/.test(text) || /\b(?:no|nunca)\b[^?!.]{0,70}\b(?:agend|coordin|organiz|program|reserv)/.test(text)) return false;
@@ -832,6 +844,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     };
     try { return await run(); }
     catch (error) {
+      const diagnostic = String(error.code || error.message || 'INTEGRATION_UNAVAILABLE');
+      console.error({ evento:'agenda_chatfuel_fallo', operacion:operation,
+        codigo:/^[A-Z_]{1,64}$/.test(diagnostic)?diagnostic:'INTEGRATION_UNAVAILABLE',
+        reserva_posible:bookingMayExist });
       const cause = ['CRM_UNAUTHORIZED', 'CRM_UNAVAILABLE', 'CRM_INVALID_RESPONSE', 'CHATFUEL_UNAVAILABLE',
         'ADVISOR_NOT_ASSIGNED', 'LEAD_NOT_PERSISTED'].includes(error.message) ? error.message : 'INTEGRATION_UNAVAILABLE';
       if (!bookingMayExist) return json({
