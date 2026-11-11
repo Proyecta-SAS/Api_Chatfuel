@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.29';
+export const RELEASE_VERSION = '1.0.30';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -157,11 +157,26 @@ export function profileComment(fields, { handoff = false, displayName = '', book
     `${FEEDBACK_HEADINGS[i + 1]}\n${lines.map(line => `• ${line}`).join('\n')}`)].join('\n\n');
 }
 const declineBooking = value => no(value) || /^(no gracias|ahora no|por ahora no|mas tarde|despues|prefiero no|no quiero agendar|no me agendes|dejalo pendiente|lo dejamos pendiente)[.!\s]*$/.test(normalize(value));
+function requestsScheduleOptions(value) {
+  const text = normalize(value).replace(/[¿?¡!.,;:]/g, ' ')
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, ' ')
+    .replace(/\s+/g, ' ').trim();
+  // Asking to see options authorizes browsing, never booking a selected slot.
+  // Match the whole request so negations and conditions cannot become consent.
+  const courtesy = '(?:(?:si+|claro|dale+|listo|bueno|por favor|porfa) )*';
+  const intent = '(?:quiero|quisiera|necesito|deseo|me gustaria|me interesa|podemos|puedes|podrias)';
+  const action = '(?:ver|revisar|consultar|conocer|buscar|mirar|elegir|coordinar)';
+  const command = '(?:dame|muestrame|revisemos|consultemos|veamos|busquemos|miramos|revisamos)';
+  const target = '(?:(?:un|una|el|la|los|las|otro|otra|otros|otras|nuevo|nueva|nuevos|nuevas) ){0,2}'
+    + '(?:horarios?|opciones(?: de horarios?)?|citas?|asesorias?|reuniones?)'
+    + '(?: (?:disponibles?|libres?))?(?: para (?:una |mi )?(?:cita|asesoria|reunion))?';
+  return new RegExp(`^${courtesy}(?:${intent} (?:${action} )?|${command} )${target}(?: por favor| porfa)?(?: gracias)?$`).test(text);
+}
 function explicitBooking(value) {
   const text = normalize(value).replace(/^[¿¡]+/,'');
   if (/\b(?:no|nunca)\s+(?:(?:quiero|quisiera|deseo|necesito|puedo|vamos a)\s+)?(?:que me\s+|me\s+)?(?:agend\w*|reserv\w*|program\w*)\b/.test(text)
     || /\b(?:no se si|tal vez|depende|solo si)\b/.test(text)) return false;
-  return /\b(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podemos|puedes)\s+(?:que me\s+)?(?:agendar(?:me)?|agendes|reservar(?:me)?|reserves|programar(?:me)?)/.test(text)
+  return requestsScheduleOptions(value) || /\b(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podemos|puedes)\s+(?:que me\s+)?(?:agendar(?:me)?|agendes|reservar(?:me)?|reserves|programar(?:me)?)/.test(text)
     || /\b(?:tienes|tiene)\s+(?:la\s+)?(?:capacidad|posibilidad)\s+de\s+agendarme\b/.test(text)
     || /^(?:(?:listo|bueno|si|por favor)[,\s]+)*(?:dame|muestrame|revisemos|consultemos)\s+(?:los\s+)?horarios[.!?\s]*$/.test(text)
     || /^(?:(?:pero|bueno|entonces|por favor|porfa|dale|si)[,\s]+)*(?:agendame|reservame|programame)\b/.test(text)
@@ -804,7 +819,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (state.step === 'choose') {
         if (/^(?:mas|otras opciones|otros horarios|mas opciones|mas horarios|no me sirven|ningun[oa] me sirve|ninguno|ninguna)[.!]*$/.test(normalize(answer))) return options(contactId, state.clientCode, state.excludedStarts || state.slots.map(s => s.startAt), state);
         let index = selection(answer, state.slots.length);
-        const clock = normalize(answer).match(/^(?:(?:a las|la de las|prefiero a las)\s+)?([01]?\d|2[0-3])(?::([0-5]\d))?(?:\s*(am|pm))?[.!]*$/);
+        const clock = normalize(answer).replace(/\b([ap])\s*\.\s*m\s*\.?/g, '$1m').match(/^(?:(?:a las|la de las|prefiero a las)\s+)?([01]?\d|2[0-3])(?:[:.]([0-5]\d))?(?:\s*(am|pm))?[.!]*$/);
         if (index === null && clock) {
           let hour = Number(clock[1]);
           if (clock[3] === 'pm' && hour < 12) hour += 12;
@@ -820,6 +835,13 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       if (state.step === 'confirm' || state.step === 'booking') {
         if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
+        // Chatfuel may stop waiting before Bitrix finishes. Replace the flow's
+        // fallback before any slow work, so a timeout reports an ongoing check.
+        // The durable booking key still protects later replies from duplicates.
+        await setAttributes(contactId, {
+          bitrix_agenda_mensaje: 'Estoy verificando tu reserva con el calendario. En unos segundos, responde «continuar» para consultar la confirmación. No necesitas elegir otro horario.',
+          bitrix_agenda_finalizada: 'no',
+        });
         if(state.step==='confirm')await upsertLead(contactId,phone,{...fields,crm_30x_codigo:state.clientCode});
         // Resolve before creating the appointment and freeze even a missing match
         // in signed state, so retries cannot bind an already created event elsewhere.
@@ -898,12 +920,16 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         reserva_posible:bookingMayExist });
       const cause = ['CRM_UNAUTHORIZED', 'CRM_UNAVAILABLE', 'CRM_INVALID_RESPONSE', 'CHATFUEL_UNAVAILABLE',
         'ADVISOR_NOT_ASSIGNED', 'LEAD_NOT_PERSISTED'].includes(error.message) ? error.message : 'INTEGRATION_UNAVAILABLE';
-      if (!bookingMayExist) return json({
+      // A failure may happen after Bitrix accepted a booking; never claim it was not booked.
+      const failure = !bookingMayExist ? {
         message: 'No pude consultar la agenda en este momento. Conservé tus datos y todavía no se ha solicitado una cita. Escríbeme «agendar» para retomarlo 🗓️.',
         done: 'si', human: 'no', error: 'BOOKING_LOOKUP_FAILED', cause,
-      });
-      // A failure may happen after Bitrix accepted a booking; never claim it was not booked.
-      return json({ message: 'No pude verificar el estado de la agenda en este momento. Evita solicitar otra cita hasta que confirmemos si la reserva se completó. Puedes pedir ayuda a un asesor.', done: 'si', human: 'no', error: 'BOOKING_CHECK_REQUIRED', cause });
+      } : { message: 'No pude verificar el estado de la agenda en este momento. Evita solicitar otra cita hasta que confirmemos si la reserva se completó. Puedes pedir ayuda a un asesor.', done: 'si', human: 'no', error: 'BOOKING_CHECK_REQUIRED', cause };
+      try {
+        // A known failure must replace the in-progress timeout notice too.
+        await setAttributes(contactId, { bitrix_agenda_mensaje: failure.message, bitrix_agenda_finalizada: 'si' });
+      } catch { /* Chatfuel may also be unavailable; retain the safe fallback. */ }
+      return json(failure);
     }
   };
   handle.synchronizeHandoffs = synchronizeHandoffs;

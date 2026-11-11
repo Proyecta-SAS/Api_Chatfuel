@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.29
+# Api_Chatfuel — V1.0.30
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -15,6 +15,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - La IA realiza las cinco preguntas de la guía RCH del 6 de noviembre de 2026.
 - Recupera aceptaciones repetidas después de «revisemos los horarios» cuando existe una invitación aceptada. Informa la fecha de una cita registrada, incluso si venció el estado conversacional; si ya pasó, pregunta antes de preparar una nueva. Las futuras o inciertas siguen protegidas.
 - Una negociación verificada como eliminada en Bitrix conserva su referencia histórica y deja de bloquear el perfil o los horarios. Las nuevas citas no se vinculan a ese ID inexistente; los errores de permisos y los teléfonos ambiguos mantienen sus protecciones.
+- Reconoce peticiones de consultar horarios como «me gustaría ver otro horario», «quiero otra cita» y «revisemos otros horarios» para retomar la agenda. Ver opciones no confirma una reserva; las negativas y condiciones no se toman como aceptación.
 - Acepta afirmaciones como «sí, me gustaría», «de acuerdo», «me parece bien», «dale» y «listo» al responder a una invitación de cita. Un sí a una pregunta financiera no acepta agenda.
 - Recupera respuestas como «sí podría», correcciones consecutivas y el banco actual de campaña sin sustituirlas por cortesías. Retoma la agenda aceptada cuando se aclara un filtro pendiente.
 - Rechaza entidades/productos excluidos, reportes negativos, falta de capacidad y cinco años o menos restantes.
@@ -27,7 +28,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - Conserva el texto original en MySQL y envía a Bitrix una representación compatible sin emojis de cuatro bytes, para evitar resúmenes truncados. La actualización de NO APLICA se ejecuta independientemente del campo resumen.
 
 - `/registrar-cliente?id=...` consulta la negociación y guarda su contacto en MySQL.
-- Conserva el consentimiento, franja, dos días y hasta tres horarios separados.
+- Conserva el consentimiento, franja, dos días y hasta tres horarios separados. Acepta horas con dos puntos o punto, como `16:30`, `16.30` y `4.30 p. m.`, y pide confirmación antes de reservar.
 - Consulta `calendar.accessibility.get` y reparte llamadas de treinta minutos según disponibilidad y carga.
 - Busca la negociación por teléfono completo en `clientes` antes de reservar.
 - Crea el evento con `calendar.event.add` y `crm_fields: ["D_ID"]` si encuentra una coincidencia.
@@ -36,6 +37,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - Persiste fallos de sincronización y reintenta cada 30 segundos, sin volver a crear citas.
 - Retoma consultas pausadas: conserva datos y franja y vuelve a verificar horarios vencidos antes de reservar.
 - Sin registro del teléfono, reserva sin vincular ni cambiar negociaciones.
+- Antes de procesar una confirmación, sustituye el aviso de respaldo del flujo por una verificación en curso: si Chatfuel agota su espera, el cliente puede consultar el resultado con «continuar» sin elegir otro horario.
 - Persiste la reserva pendiente antes de llamar a Bitrix; recupera respuestas perdidas sin crear otro evento.
 - Conserva la atención por IA, transferencias a humanos y recuperación de mensajes sin asignar.
 
@@ -104,7 +106,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.29"` y
+Después del push, `/health` debe indicar `version: "1.0.30"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

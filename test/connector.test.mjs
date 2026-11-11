@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  database = null, stagePending = false, resolveError = null, availabilityErrors = [], bookingMessages = [], incomingSentTime = new Date(START).toISOString() } = {}) {
+  database = null, stagePending = false, resolveError = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
     rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años', ...initial };
@@ -77,6 +77,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
       } });
     }
     if (url.endsWith('/appointments')) {
+      if (bookingBarrier) await bookingBarrier();
       if (bookingError === 'advisor-removed' && !failed) {
         failed = true;
         throw Object.assign(new Error('INVALID_ADVISOR'), { retryable: false });
@@ -156,6 +157,88 @@ test('una cita pasada confirmada permite pedir otra sin borrar ni duplicar la an
   assert.equal(f.bookings().length,1);
 });
 
+test('pedir otro horario tras una cita pasada retoma la agenda sin crear una reserva',async()=>{
+  for(const answer of ['me gustaria ver otro horario','Me gustaría ver otro horario',
+    'sí, me gustaría ver otro horario','quiero ver otros horarios','quisiera revisar horarios disponibles',
+    'podemos consultar otro horario?','muéstrame otros horarios por favor','quiero otra cita',
+    'me interesa una nueva asesoría','dale revisemos otros horarios']){
+    const f=fixture();
+    await prepareOptions(f);await f.request('step','1');await f.request('step','si');
+    f.advance(7*24*60*60_000);
+    assert.match((await f.request('start')).message,/fecha ya pasó/);
+    const response=await f.request('step',answer);
+    assert.match(response.message,/mañana o en la tarde/,answer);
+    assert.doesNotMatch(response.message,/fecha ya pasó/,answer);
+    assert.equal(f.bookings().length,1);
+  }
+});
+
+test('negar o condicionar otra cita no se interpreta como aceptación',async()=>{
+  for(const answer of ['no me gustaría ver otro horario','no quiero otra cita',
+    'no quiero ver otros horarios','tal vez me gustaría ver otro horario',
+    'no sé si quiero otra cita','quiero otro horario solo si es gratis',
+    'me gustaría saber cuánto cuesta','¿tengo que reservar otra cita?']){
+    const f=fixture();
+    await prepareOptions(f);await f.request('step','1');await f.request('step','si');
+    f.advance(7*24*60*60_000);await f.request('start');
+    const response=await f.request('step',answer);
+    assert.doesNotMatch(response.message,/mañana o en la tarde/,answer);
+    assert.equal(f.bookings().length,1);
+  }
+});
+
+test('pedir otros horarios en una confirmación no confirma automáticamente la reserva',async()=>{
+  const f=fixture();await prepareOptions(f);await f.request('step','1');
+  await f.request('step','me gustaría ver otro horario');
+  assert.equal(f.bookings().length,0);
+});
+
+test('la hora escrita con punto selecciona únicamente el horario ofrecido y pide confirmación',async()=>{
+  for(const answer of ['16.30','16:30','4.30 pm','4.30 p. m.','a las 16.30']){
+    const slot={startAt:'2026-11-05T21:30:00Z',endAt:'2026-11-05T22:00:00Z',advisorId:'advisor-one'};
+    const f=fixture({availabilitySlots:[slot]});
+    await f.request('start');await f.request('step','tarde');await f.request('step','1');
+    const result=await f.request('step',answer);
+    assert.match(result.message,/Elegiste/,answer);assert.match(result.message,/4:30 p/);
+    assert.equal(f.bookings().length,0);
+  }
+});
+
+test('una reserva lenta cambia el aviso de timeout a verificación en curso antes de terminar',async()=>{
+  let started,release;
+  const reached=new Promise(resolve=>{started=resolve;});
+  const barrier=new Promise(resolve=>{release=resolve;});
+  const f=fixture({bookingBarrier:async()=>{started();await barrier;}});
+  await prepareOptions(f);await f.request('step','1');
+  // The flow seeds these fallback attributes before invoking the connector.
+  f.fields.bitrix_agenda_mensaje='No pude verificar la agenda en este momento.';
+  f.fields.bitrix_agenda_finalizada='si';
+  const pending=f.request('step','si');
+  try {
+    await reached;
+    assert.match(f.fields.bitrix_agenda_mensaje,/Estoy verificando tu reserva/);
+    assert.match(f.fields.bitrix_agenda_mensaje,/continuar/);
+    assert.doesNotMatch(f.fields.bitrix_agenda_mensaje,/No pude|quedó agendada/);
+    assert.equal(f.fields.bitrix_agenda_finalizada,'no');
+    assert.equal(f.fields.bitrix_reserva_pendiente,'si');
+  } finally {release();}
+  assert.match((await pending).message,/quedó agendada/);
+  assert.equal(f.fields.bitrix_reserva_pendiente,'no');
+  assert.equal(f.fields.bitrix_agenda_finalizada,'si');
+  assert.match((await f.request('step','continuar')).message,/ya está confirmada/);
+  assert.equal(f.bookings().length,1);
+});
+
+test('un error real de reserva sustituye el aviso de espera y conserva la reserva pendiente',async()=>{
+  const f=fixture({bookingError:'network-once'});
+  await prepareOptions(f);await f.request('step','1');
+  const failed=await f.request('step','si');
+  assert.equal(failed.error,'BOOKING_CHECK_REQUIRED');
+  assert.equal(f.fields.bitrix_agenda_mensaje,failed.message);
+  assert.equal(f.fields.bitrix_agenda_finalizada,'si');
+  assert.equal(f.fields.bitrix_reserva_pendiente,'si');
+});
+
 test('una cita confirmada futura sigue protegida ante una nueva solicitud',async()=>{
   const f=fixture();
   await prepareOptions(f);await f.request('step','1');await f.request('step','si');
@@ -232,7 +315,8 @@ test('la agenda confirma solo un perfil aplicable y conserva el aviso final de l
 test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{
   for(const text of ['Que siiiiiii','Listo dame los horarios','Si me gustaría','Sí, me gustaría',
     'de acuerdo','sí claro','me parece bien','dale','listo','adelante','sigamos',
-    'sí, claro, me gustaría mucho','ok gracias','Sí señora','👍']){
+    'sí, claro, me gustaría mucho','ok gracias','Sí señora','👍',
+    'me gustaria ver otro horario','quiero ver horarios disponibles','me interesa una nueva asesoría']){
     const f=fixture({latestText:text,initial:{'last user freeform input':text},previousReply:'¿Te gustaría agendar una llamada de 30 minutos con un asesor?'});
     await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
     assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
