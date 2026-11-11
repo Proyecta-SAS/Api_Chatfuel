@@ -18,15 +18,17 @@ function answer(text,field){
   if(field==='rch_banco'){
     const bank=String(text).trim();
     if(!bank||bank.length>180||/\b(?:agend|reserv|asesor|empez|reinici)/.test(normalize(bank)))return null;
+    if(/^(?:si+|no+|claro|gracias|ok|dale+|listo|genial)[.!]*$/.test(normalize(bank)))return null;
     return /^(?:no se|no recuerdo|no sabe)$/.test(normalize(bank))?'desconocido':bank;
   }
   if(['rch_reportes_negativos','rch_puede_aumentar_cuota'].includes(field)){
     const t=normalize(text).replace(/[.!¡,;:]/g,' ').replace(/\s+/g,' ').trim();
     if(/^(?:si+|si+ claro|claro|claro que si|si por supuesto|si tengo|si los tengo|si puedo|puedo)$/.test(t))return 'si';
+    if(field==='rch_puede_aumentar_cuota' && /^(?:si+\s+)?(?:podria|podemos|puedo)(?:\s+(?:hacerlo|aumentar(?:la)?|un poco|claro|sin problema))?$/.test(t))return 'si';
     if(/^(?:no+|no+ limpio|no tengo|no los tengo|no puedo|no me es posible)$/.test(t))return 'no';
     if(field==='rch_reportes_negativos'&&/^(?:tengo reportes negativos|si tengo reportes negativos|estoy reportado|estoy reportada)$/.test(t))return 'si';
     if(field==='rch_reportes_negativos'&&/^(?:no tengo reportes negativos|estoy limpio|estoy limpia)$/.test(t))return 'no';
-    return 'desconocido';
+    return /^(?:no se|no recuerdo|no estoy segur[oa]|desconocido|estoy en mora|estoy en datacredito)$/.test(t)?'desconocido':null;
   }
   let t=normalize(text).replace(/[.!]+$/,'').trim();
   for(let i=0;i<3;i++)t=t.replace(/^(?:ya\s+)?te\s+(?:dije|habia dicho)\s+que\s+/,'')
@@ -71,10 +73,11 @@ export function reconcileQuestionnaireTimes(fields,messages=[]){
     else if(question){const value=answer(text,question);if(value!==null){updates[question]=value;if(question==='rch_banco')updates.banco_entidad=value;}}
     // Campaign greetings can be template nodes without readable question text.
     // Only an unambiguous standalone entity is recovered in that situation.
-    if(!question && /^(?:con (?:el )?(?:banco )?)?bbva(?: colombia)?[.!]*$/.test(normalized)){
+    if(!question && /^(?:con (?:el )?(?:banco )?)?(?:bbva(?: colombia)?|bancolombia|davivienda|banco de bogota|banco bogota|banco de occidente|banco caja social|banco popular|banco agrario|av villas|fna|fondo nacional del ahorro|itau|credifamilia)[.!]*$/.test(normalized)){
       updates.rch_banco=text.trim();updates.banco_entidad=text.trim();
     }
-    question=null;
+    // A customer can correct a typo in a second consecutive message before the
+    // assistant replies (for example "Ni", then "No"). Keep that question.
   }
   return Object.fromEntries(Object.entries(updates).filter(([field,value])=>String(fields[field]??'')!==value));
 }

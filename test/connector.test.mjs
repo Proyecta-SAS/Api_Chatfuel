@@ -122,6 +122,34 @@ async function prepareOptions(f) {
   return f.request('step', '1');
 }
 
+test('la capacidad sí podría permite completar datos y mostrar días y horarios reales',async()=>{
+  const f=fixture({initial:{rch_puede_aumentar_cuota:'desconocido',nombre_completo:'',ciudad_municipio:'',obligacion_vivienda_activa:''},
+    bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'Si podría'},
+      {__typename:'WhatsAppOutTextMessage',text:'¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?'}]});
+  assert.match((await f.request('start')).message,/nombre completo/);
+  assert.match((await f.request('step','Persona Ejemplo')).message,/ciudad/);
+  assert.match((await f.request('step','Bogotá')).message,/hipotecario o leasing/);
+  assert.match((await f.request('step','Si')).message,/mañana o en la tarde/);
+  assert.match((await f.request('step','mañana')).message,/día/);
+  assert.match((await f.request('step','1')).message,/horarios libres/);
+  assert.equal(f.fields.rch_puede_aumentar_cuota,'si');
+  assert.equal(f.bookings().length,0);
+});
+
+test('retoma una agenda ya aceptada cuando se recupera el filtro confirmado',async()=>{
+  const f=fixture({initial:{rch_puede_aumentar_cuota:'desconocido'},latestText:'Genial',
+    bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'Si podría'},
+      {__typename:'WhatsAppOutTextMessage',text:'¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?'}]});
+  // First create the pending state before the original evidence becomes visible.
+  const pending=fixture({initial:{rch_puede_aumentar_cuota:'desconocido'}});
+  const response=await pending.request('start');
+  f.fields.bitrix_agenda_estado=response.state;
+  f.fields.solicitud_agendamiento='no';f.fields['last user freeform input']='Genial';
+  await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+  assert.equal(f.bookings().length,0);
+});
+
 test('al entrar a agenda conserva la corrección real y no repite tiempos financieros',async()=>{
   const bookingMessages=[
     {__typename:'WhatsAppInTextMessage',text:'10 años ya te lo habia dicho'},

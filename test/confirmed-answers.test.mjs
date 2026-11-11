@@ -51,3 +51,26 @@ test('no descarta por preguntas, productos adicionales, menciones del bot ni pr�
   }
   assert.deepEqual(reconcileQuestionnaireTimes({},[out('Tu libranza no aplica')]),{});
 });
+
+test('conserva el sí podría confirmado y no lo reemplaza por una cortesía',()=>{
+  const question=out('¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?');
+  assert.deepEqual(reconcileQuestionnaireTimes({rch_puede_aumentar_cuota:'desconocido'},[
+    incoming('Genial'),out('¡Con gusto! Revisemos los horarios para tu cita'),
+    incoming('Si podría'),question,
+  ]),{rch_puede_aumentar_cuota:'si'});
+  assert.deepEqual(reconcileQuestionnaireTimes({rch_puede_aumentar_cuota:'si'},[
+    incoming('Genial'),question,
+  ]),{});
+});
+
+test('recupera una corrección enviada en dos mensajes consecutivos',()=>{
+  assert.deepEqual(reconcileQuestionnaireTimes({rch_reportes_negativos:'desconocido'},[
+    incoming('No'),incoming('Ni'),out('¿Actualmente tienes reportes negativos en centrales de riesgo?'),
+  ]),{rch_reportes_negativos:'no'});
+});
+
+test('el banco actual de campaña reemplaza uno antiguo aunque la plantilla no sea legible',()=>{
+  assert.deepEqual(reconcileQuestionnaireTimes({rch_banco:'BBVA'},[
+    incoming('Bancolombia'),{__typename:'WhatsAppOutTemplateMessage'},incoming('BBVA'),
+  ]),{rch_banco:'Bancolombia',banco_entidad:'Bancolombia'});
+});

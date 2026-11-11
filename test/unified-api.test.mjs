@@ -41,7 +41,7 @@ test('la salud conjunta identifica la versión y comprueba MySQL y la configurac
   const response = await request('/health');
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.version, '1.0.25');
+  assert.equal(body.version, '1.0.26');
   assert.equal(body.service, 'api-chatfuel');
   assert.equal(body.mysql.ok, true);
   assert.equal(body.handoff.enabled, false);

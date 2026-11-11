@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.25';
+export const RELEASE_VERSION = '1.0.26';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -515,8 +515,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           }
           if (node.assignee?.__typename === 'FuelyAIAssignee') {
             const state = decode(fields.bitrix_agenda_estado, node.id);
+            const resumeEligibleBooking = state?.step === 'eligibility_pending'
+              && evaluateRchEligibility(fields).status === 'APLICA';
             const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending'].includes(state.step);
-            if ((!yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
+            if ((!resumeEligibleBooking && !yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
               || active || yes(fields.bitrix_reserva_pendiente) || !env.CHATFUEL_BOOKING_FLOW_ID) continue;
             const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
             if (current.bot.conversation.status === 'open') continue;
@@ -540,7 +542,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               && evidence(incoming.text) === evidence(fields.texto_solicitud_agendamiento);
             // A bare yes needs the immediately preceding call offer, even if an
             // AI-extracted attribute incorrectly classifies another answer as consent.
-            if (!explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
+            if (!resumeEligibleBooking && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
             const intentHash = createHash('sha256').update(`${node.id}|${incoming.id}`).digest('hex');
             if (fields.crm_30x_booking_intent_hash === intentHash
               || routedBookingIntents.get(node.id) === intentHash) continue;
