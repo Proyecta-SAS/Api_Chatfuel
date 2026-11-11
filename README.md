@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.31
+# Api_Chatfuel — V1.0.32
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -32,7 +32,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 - Consulta `calendar.accessibility.get` y reparte llamadas de treinta minutos según disponibilidad y carga.
 - Busca la negociación por teléfono completo en `clientes` antes de reservar.
 - Crea el evento con `calendar.event.add` y `crm_fields: ["D_ID"]` si encuentra una coincidencia.
-- El resumen y comentario de Bitrix incluyen RESUMEN DE LA CITA: estado, fecha, hora de Colombia, duración, modalidad, asesor y evento. Tras confirmar, el observador actualiza ese feedback en su siguiente ciclo (cada 30 segundos), con reintentos persistidos y sin crear otra cita. Los cambios posteriores del perfil conservan la sección de la reserva.\n- Guarda la cita confirmada antes de mover la negociación a `C370:EXECUTING`.
+- El resumen y comentario de Bitrix incluyen RESUMEN DE LA CITA: estado, fecha, hora de Colombia, duración, modalidad, asesor y evento. Tras confirmar, el observador actualiza ese feedback en su siguiente ciclo (cada 30 segundos), con reintentos persistidos y sin crear otra cita. Los cambios posteriores del perfil conservan la sección de la reserva. Para una cita vinculada, el feedback sigue su negociación original aunque cambie de embudo: verifica ID y teléfono y actualiza solo resumen y comentario, respetando etapa y responsable.\n- Guarda la cita confirmada antes de mover la negociación a `C370:EXECUTING`.
 - Verifica el evento creado y actualiza etapa, responsable y fecha de asesoría juntos, con el dueño y horario reales del calendario.
 - Persiste fallos de sincronización y reintenta cada 30 segundos, sin volver a crear citas.
 - Retoma consultas pausadas: conserva datos y franja y vuelve a verificar horarios vencidos antes de reservar.
@@ -106,7 +106,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.31"` y
+Después del push, `/health` debe indicar `version: "1.0.32"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

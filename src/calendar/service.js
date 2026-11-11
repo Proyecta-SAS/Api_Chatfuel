@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { validId } from '../bitrix.js';
+import { validId, CLIENT_PHONE_FIELD } from '../bitrix.js';
 import { phoneVariants } from '../phone.js';
 import { bogotaToday, candidateDates, parseBitrixDate, weekdayForDate } from './appointmentAvailability.js';
 import { calculateAdvisorDateSlots } from './appointmentAdvisorAvailability.js';
@@ -72,37 +72,39 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     // Profiles are local. An existing registered deal receives a deduplicated
     // summary; a missing match never creates an unrelated Bitrix deal.
     if (registered && body.summary) {
-      const id = String(registered.id_negociacion);
-      const latest = await store.latestAppointment(profile.clientCode);
-      const linkedDeal = latest?.request?.bitrixDealId || latest?.response?.crmSync?.dealId;
-      const appointment = !linkedDeal || String(linkedDeal) === id ? latest : null;
-      const fullSummary = withAppointmentSummary(body.summary, appointment, {
-        advisorName:advisors.find(a=>a.id===appointment?.advisorId)?.name || '',now:now(),
-      });
-      const saved = await store.getProfile(profile.clientCode);
-      await store.saveProfile(saved, {...body,summary:fullSummary});
-      const summary = bitrixSummaryText(fullSummary);
-      await store.withLock('profile-summary:' + id, async db => {
-        const current = await deal(id);
-        // A summary field write is safe to retry. Verify it before claiming a comment,
-        // so a failure cannot lose the comment or report the profile as synchronized.
-        if (current[DEAL_SUMMARY_FIELD] !== summary) {
-          if (await bitrix.call('crm.deal.update', { id, fields: { [DEAL_SUMMARY_FIELD]: summary } }) !== true
-            || (await deal(id))[DEAL_SUMMARY_FIELD] !== summary) fail('SUMMARY_NOT_CONFIRMED');
-        }
-        const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${summary}`).digest('hex');
-        if (await db.claimComment(hash, id)) {
-          const commentId = await bitrix.call('crm.timeline.comment.add', { fields: {
-            ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(summary),
-          } });
-          await db.confirmComment(hash, requireBitrixEventId(commentId));
-        } else if (await db.commentStatus(hash) !== 'confirmed') {
-          // An unknown send result is not permission to post the comment again.
-          fail('COMMENT_CONFIRMATION_REQUIRED');
-        }
-      });
+      await writeProfileSummary(profile,body,String(registered.id_negociacion));
     }
     return { ok: true, persisted: true, clientId: profile.clientCode, rejectionSync, feedbackPersisted:Boolean(registered && body.summary) };
+  }
+  async function writeProfileSummary(profile, body, id, readDeal = () => deal(id)) {
+    const latest = await store.latestAppointment(profile.clientCode);
+    const linkedDeal = latest?.request?.bitrixDealId || latest?.response?.crmSync?.dealId;
+    const appointment = !linkedDeal || String(linkedDeal) === id ? latest : null;
+    const fullSummary = withAppointmentSummary(body.summary, appointment, {
+      advisorName:advisors.find(a=>a.id===appointment?.advisorId)?.name || '',now:now(),
+    });
+    const saved = await store.getProfile(profile.clientCode);
+    await store.saveProfile(saved, {...body,summary:fullSummary});
+    const summary = bitrixSummaryText(fullSummary);
+    await store.withLock('profile-summary:' + id, async db => {
+      const current = await readDeal();
+      // A summary field write is safe to retry. Verify it before claiming a comment,
+      // so a failure cannot lose the comment or report the profile as synchronized.
+      if (current[DEAL_SUMMARY_FIELD] !== summary) {
+        if (await bitrix.call('crm.deal.update', { id, fields: { [DEAL_SUMMARY_FIELD]: summary } }) !== true
+          || (await readDeal())[DEAL_SUMMARY_FIELD] !== summary) fail('SUMMARY_NOT_CONFIRMED');
+      }
+      const hash = createHash('sha256').update(`${id}|${profile.clientCode}|${summary}`).digest('hex');
+      if (await db.claimComment(hash, id)) {
+        const commentId = await bitrix.call('crm.timeline.comment.add', { fields: {
+          ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(summary),
+        } });
+        await db.confirmComment(hash, requireBitrixEventId(commentId));
+      } else if (await db.commentStatus(hash) !== 'confirmed') {
+        // An unknown send result is not permission to post the comment again.
+        fail('COMMENT_CONFIRMATION_REQUIRED');
+      }
+    });
   }
   async function syncRejectedProfile(code) {
     const profile = await store.getProfile(code);
@@ -140,16 +142,29 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         if (!profile?.data?.summary) {
           outcome={status:'skipped',reason:'NO_PROFILE_SUMMARY',attempts};
         } else {
-          const registered=await registeredClient(profile.phone);
-          if (dealId && String(registered.client?.id_negociacion) !== String(dealId)) fail('FEEDBACK_DEAL_CHANGED');
-          const result=await upsert({...profile.data,phone:profile.phone,externalLeadId:profile.clientCode});
-          outcome={status:result.feedbackPersisted?'completed':'skipped',attempts,
-            version:PROFILE_FEEDBACK_VERSION,nextAttemptAt:null,lastError:null};
+          const registered=await database.findClienteByPhone(profile.phone);
+          if (dealId && String(registered?.id_negociacion) !== String(dealId)) fail('FEEDBACK_DEAL_CHANGED');
+          if (!registered) outcome={status:'skipped',reason:'DEAL_NOT_LINKED',attempts};
+          else {
+            const id=String(registered.id_negociacion);
+            const readFeedbackDeal = async () => {
+              // A confirmed appointment keeps its original deal even if a person
+              // moved it to another pipeline. This path writes summary text only.
+              const current=await bitrix.call('crm.deal.get',{id});
+              if(String(current.ID)!==id)fail('INVALID_BITRIX_DEAL');
+              if(!dealId && String(current.CATEGORY_ID)!=='370')fail('INVALID_BITRIX_DEAL');
+              const phone=String(current[CLIENT_PHONE_FIELD]||'').replace(/\D/g,'');
+              if(!phone||!phoneVariants(profile.phone).includes(phone))fail('FEEDBACK_PHONE_CHANGED');
+              return current;
+            };
+            await writeProfileSummary(profile,profile.data,id,readFeedbackDeal);
+            outcome={status:'completed',attempts,version:PROFILE_FEEDBACK_VERSION,nextAttemptAt:null,lastError:null};
+          }
         }
       } catch (error) {
         const code=/^[A-Z_]{1,64}$/.test(error.code||'')?error.code:'FEEDBACK_SYNC_UNAVAILABLE';
         outcome={status:'pending',attempts,lastError:code,version:PROFILE_FEEDBACK_VERSION,
-          reviewRequired:['FEEDBACK_DEAL_CHANGED','COMMENT_CONFIRMATION_REQUIRED'].includes(code)||attempts>=8,
+          reviewRequired:['FEEDBACK_DEAL_CHANGED','FEEDBACK_PHONE_CHANGED','INVALID_BITRIX_DEAL','COMMENT_CONFIRMATION_REQUIRED'].includes(code)||attempts>=8,
           nextAttemptAt:new Date(now()+Math.min(1_800_000,30_000*2**Math.min(attempts-1,6))).toISOString()};
       }
       await db.saveFeedbackSync(id,outcome);

@@ -61,7 +61,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   let missingDeal=false,dealReadError=false;
   let failCreate=false, failStage=false, stage='C370:NEW', category='370', omitCalendar=false;
   let responsible='99', ignoreResponsible=false, blockedOwner=null, eventOverride={}, time=NOW;
-  let registered = {id_negociacion:'777'};
+  let registered = {id_negociacion:'777'}, dealPhone='573000000001';
   let summary = '', ignoreSummary = false, failComment = false;
   let appointmentDate = '', ignoreAppointmentDate = false;
   const calls=[], events=[];
@@ -82,7 +82,7 @@ function fixture(store = memoryStore(), pool = advisors) {
     if(method==='crm.deal.get') {
       if(missingDeal)throw Object.assign(new Error('NEGOCIACION_NO_ENCONTRADA'),{code:'NEGOCIACION_NO_ENCONTRADA'});
       if(dealReadError)throw Object.assign(new Error('BITRIX_ERROR'),{code:'BITRIX_ERROR'});
-      return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',UF_CRM_1584616588730:'573000000001',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
+      return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',UF_CRM_1584616588730:dealPhone,[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
     }
     if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');
       if(params.fields.STAGE_ID) stage=params.fields.STAGE_ID;
@@ -103,7 +103,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   get appointmentDate(){return appointmentDate;},set appointmentDate(v){appointmentDate=v;},set ignoreAppointmentDate(v){ignoreAppointmentDate=v;},
   set ignoreResponsible(v){ignoreResponsible=v;},set blockedOwner(v){blockedOwner=v;},set eventOverride(v){eventOverride=v;},
   get stage(){return stage;},set stage(v){stage=v;},set category(v){category=v;},set failCreate(v){failCreate=v;},
-  set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
+  set failStage(v){failStage=v;},set registered(v){registered=v;},set dealPhone(v){dealPhone=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
   await t.test('una negociación eliminada no bloquea horarios ni vincula citas al ID inexistente',async()=>{
@@ -400,6 +400,28 @@ async function scenarios(t, create) {
     assert.equal(sync.lastError,'COMMENT_CONFIRMATION_REQUIRED');
     assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,count);
     assert.equal(f.events.length,1);
+  });
+  await t.test('la cita mantiene su resumen en el embudo actual sin cambiar etapa ni responsable',async()=>{
+    const f=await create();const code=await f.profile();const profile=await f.store.getProfile(code);
+    await f.service.upsert({...profile.data,phone:profile.phone,summary:'Perfil y cita confirmada'});
+    const booked=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'feedback-other-pipeline');
+    f.category='8';f.stage='C8:NEW';f.responsible='99';
+    const before=f.calls.length;
+    const sync=await f.service.syncAppointmentFeedback(booked.data.appointmentId);
+    assert.equal(sync.status,'completed');assert.match(f.summary,/RESUMEN DE LA CITA/);
+    assert.equal(f.stage,'C8:NEW');assert.equal(f.responsible,'99');assert.equal(f.events.length,1);
+    for(const call of f.calls.slice(before).filter(c=>c.method==='crm.deal.update')){
+      assert.deepEqual(Object.keys(call.params.fields),[DEAL_SUMMARY_FIELD]);
+    }
+  });
+  await t.test('el feedback se detiene si el teléfono de la negociación ya no coincide',async()=>{
+    const f=await create();const code=await f.profile();const profile=await f.store.getProfile(code);
+    await f.service.upsert({...profile.data,phone:profile.phone,summary:'Perfil confirmado'});
+    const booked=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'feedback-phone-change');
+    f.dealPhone='573000000099';const before=f.calls.length;
+    const sync=await f.service.syncAppointmentFeedback(booked.data.appointmentId);
+    assert.equal(sync.reviewRequired,true);assert.equal(sync.lastError,'FEEDBACK_PHONE_CHANGED');
+    assert.equal(f.calls.slice(before).filter(c=>c.method==='crm.deal.update'||c.method==='crm.timeline.comment.add').length,0);
   });
   await t.test('feedback antes y después de reservar conserva evento, vínculo, responsable e idempotencia',async()=>{
     const f=await create();
