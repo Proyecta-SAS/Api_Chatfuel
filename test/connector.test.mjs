@@ -122,6 +122,44 @@ async function prepareOptions(f) {
   return f.request('step', '1');
 }
 
+test('una aceptación repetida tras el acuse retoma la oferta aceptada una sola vez',async()=>{
+  for(const latestText of ['dale','dalee','de acuerdo']){
+    const f=fixture({latestText,initial:{'last user freeform input':latestText},
+      previousReply:'¡Con gusto! 😊 Revisemos los horarios para tu cita',olderMessages:[
+        {__typename:'WhatsAppInTextMessage',text:'si'},
+        {__typename:'WhatsAppOutTextMessage',text:'¿Te gustaría agendar una asesoría virtual de 30 minutos por Zoom con un asesor?'},
+      ]});
+    await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+    assert.equal(f.bookings().length,0);
+  }
+  const f=fixture({latestText:'si',initial:{'last user freeform input':'si'},
+    previousReply:'¡Con gusto! Revisemos los horarios para tu cita',olderMessages:[
+      {__typename:'WhatsAppInTextMessage',text:'si'},
+      {__typename:'WhatsAppOutTextMessage',text:'¿Puedes aumentar un poco la cuota?'},
+    ]});
+  await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+});
+
+test('una cita pasada confirmada permite pedir otra sin borrar ni duplicar la anterior',async()=>{
+  const f=fixture();
+  await prepareOptions(f);await f.request('step','1');await f.request('step','si');
+  assert.equal(f.bookings().length,1);
+  f.advance(7*24*60*60_000);
+  const renewed=await f.request('start');
+  assert.match(renewed.message,/mañana o en la tarde/);
+  assert.equal(f.bookings().length,1);
+});
+
+test('una cita confirmada futura sigue protegida ante una nueva solicitud',async()=>{
+  const f=fixture();
+  await prepareOptions(f);await f.request('step','1');await f.request('step','si');
+  const repeated=await f.request('start');
+  assert.match(repeated.message,/ya está confirmada/);
+  assert.equal(f.bookings().length,1);
+});
+
 test('la capacidad sí podría permite completar datos y mostrar días y horarios reales',async()=>{
   const f=fixture({initial:{rch_puede_aumentar_cuota:'desconocido',nombre_completo:'',ciudad_municipio:'',obligacion_vivienda_activa:''},
     bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'Si podría'},

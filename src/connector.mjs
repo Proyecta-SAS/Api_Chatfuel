@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.27';
+export const RELEASE_VERSION = '1.0.28';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -193,6 +193,18 @@ function offersBooking(value) {
   if (!/[¿?]/.test(text) || /\b(?:no|nunca)\b[^?!.]{0,70}\b(?:agend|coordin|organiz|program|reserv)/.test(text)) return false;
   return /\b(?:quiere|quieres|desea|deseas|le gustaria|te gustaria|podemos)\b[^?!.]{0,100}\b(?:agendar|coordinar|organizar|organicemos|agendemos|coordinemos|programar|reservar)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text)
     || /\b(?:agendamos|coordinamos|organizamos|programamos|le agendo|te agendo)\b[^?!.]{0,80}\b(?:llamada|cita|asesoria|reunion)\b/.test(text);
+}
+function acceptedBookingHistory(messages) {
+  for(let i=0;i<messages.length;i++){
+    const message=messages[i];
+    if(message.__typename!=='WhatsAppInTextMessage')continue;
+    if(declineBooking(message.text))return false;
+    if(explicitBooking(message.text))return true;
+    const previous=messages.slice(i+1).find(m=>/^WhatsApp(?:In|Out)/.test(m.__typename));
+    if(confirmBooking(message.text) && previous?.__typename==='WhatsAppOutTextMessage'
+      && offersBooking(previous.text))return true;
+  }
+  return false;
 }
 function asksBookingPeriod(value) {
   const text=normalize(value);
@@ -552,9 +564,13 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               && (offersBooking(preceding.text)||asksBookingPeriod(preceding.text));
             const capturedIntent = yes(fields.solicitud_agendamiento) && fields.texto_solicitud_agendamiento
               && evidence(incoming.text) === evidence(fields.texto_solicitud_agendamiento);
+            const repeatedAcceptance=confirmBooking(incoming.text)
+              && preceding?.__typename==='WhatsAppOutTextMessage'
+              && /\brevisemos los horarios para tu cita\b/.test(normalize(preceding.text))
+              && acceptedBookingHistory(messages.slice(incomingIndex+1));
             // A bare yes needs the immediately preceding call offer, even if an
             // AI-extracted attribute incorrectly classifies another answer as consent.
-            if (!resumeEligibleBooking && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
+            if (!resumeEligibleBooking && !repeatedAcceptance && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
             const intentHash = createHash('sha256').update(`${node.id}|${incoming.id}`).digest('hex');
             if (fields.crm_30x_booking_intent_hash === intentHash
               || routedBookingIntents.get(node.id) === intentHash) continue;
@@ -642,6 +658,20 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       const expired = state ? null : decode(fields.bitrix_agenda_estado, contactId, { allowExpired:true });
       bookingMayExist = yes(fields.bitrix_reserva_pendiente)
         || ['booking','confirmed','check_pending'].includes(state?.step || expired?.step);
+      const previousBooking=state || expired;
+      const previousEnd=Date.parse(previousBooking?.slot?.endAt);
+      const previousStart=Date.parse(previousBooking?.slot?.startAt);
+      if(operation==='start' && previousBooking?.step==='confirmed'
+        && /^\d{1,20}$/.test(String(previousBooking.bitrixEventId||''))
+        && Number.isFinite(previousStart) && Number.isFinite(previousEnd)
+        && previousStart<previousEnd && previousEnd<=now()
+        && !yes(fields.bitrix_reserva_pendiente)){
+        // A signed, confirmed appointment that has already ended is history,
+        // not an uncertain reservation. Keep its durable record and start a
+        // new offer only after another explicit booking request.
+        bookingMayExist=false;
+        return profileOrOptions(contactId,phone,fields);
+      }
       // Profile answers and morning/afternoon preferences can resume; an expired
       // time selection never authorizes a reservation without fresh availability.
       if (expired && ['name','city','active','period'].includes(expired.step)) state = expired;
