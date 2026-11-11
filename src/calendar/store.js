@@ -67,6 +67,27 @@ export function createSchedulingStore(pool, executor = pool) {
       const [rows] = await executor.execute('SELECT * FROM chatfuel_citas WHERE id=?', [id]);
       return appointment(rows[0]);
     },
+    async latestAppointment(code) {
+      const [rows] = await executor.execute("SELECT * FROM chatfuel_citas WHERE cliente_codigo=? AND estado IN ('pending','confirmed') ORDER BY creado_en DESC,inicio DESC,id DESC LIMIT 1", [code]);
+      return appointment(rows[0]);
+    },
+    async saveFeedbackSync(id, sync) {
+      await executor.execute("UPDATE chatfuel_citas SET respuesta=JSON_SET(respuesta,'$.feedbackSync',JSON_EXTRACT(?,'$')) WHERE id=?", [JSON.stringify(sync),id]);
+    },
+    async pendingFeedbackAppointments(at) {
+      const [rows] = await executor.execute(`SELECT id FROM chatfuel_citas WHERE estado='confirmed' AND bitrix_evento_id IS NOT NULL
+        AND JSON_UNQUOTE(JSON_EXTRACT(respuesta,'$.feedbackSync.status'))='pending'
+        AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(respuesta,'$.feedbackSync.reviewRequired')),'false')<>'true'
+        AND (JSON_EXTRACT(respuesta,'$.feedbackSync.nextAttemptAt') IS NULL
+          OR JSON_UNQUOTE(JSON_EXTRACT(respuesta,'$.feedbackSync.nextAttemptAt'))='null'
+          OR JSON_UNQUOTE(JSON_EXTRACT(respuesta,'$.feedbackSync.nextAttemptAt'))<=?)
+        ORDER BY creado_en LIMIT 5`, [at]);
+      return rows.map(row=>row.id);
+    },
+    async commentStatus(hash) {
+      const [rows] = await executor.execute('SELECT estado FROM chatfuel_comentarios WHERE huella=?', [hash]);
+      return rows[0]?.estado || null;
+    },
     async reservations(from, to) {
       const [rows] = await executor.execute(`SELECT * FROM chatfuel_citas WHERE estado IN ('pending','confirmed') AND inicio<? AND fin>?`,
         [new Date(`${to}T23:59:59.999-05:00`), new Date(`${from}T00:00:00-05:00`)]);

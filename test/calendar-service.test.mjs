@@ -11,7 +11,7 @@ const NOW = Date.parse('2026-11-02T12:00:00Z');
 const advisors = [{ id:'advisor-a', name:'Asesor prueba', bitrixUserId:'10' }];
 const request = { startAt:'2026-11-03T09:00:00-05:00', durationMinutes:30, advisorId:'advisor-a', advisorPool:true };
 function memoryStore() {
-  const profiles = new Map(), bookings = new Map(), locks = new Map(), comments = new Set();
+  const profiles = new Map(), bookings = new Map(), locks = new Map(), comments = new Map();
   return {
     async withLock(key, fn) {
       const previous = locks.get(key) || Promise.resolve();
@@ -34,6 +34,15 @@ function memoryStore() {
       && !p.data.rejectionSync.reviewRequired && p.data.rejectionSync.nextAttemptAt<=at).map(p=>p.clientCode); },
     async getByKey(key) { return structuredClone([...bookings.values()].find(b=>b.key===key)); },
     async getAppointment(id) { return structuredClone(bookings.get(id)); },
+    async latestAppointment(code) {
+      return structuredClone([...bookings.values()].filter(row=>row.clientCode===code&&['pending','confirmed'].includes(row.status))
+        .sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.startAt.localeCompare(a.startAt)||b.id.localeCompare(a.id))[0]);
+    },
+    async saveFeedbackSync(id,sync) { bookings.get(id).response.feedbackSync=structuredClone(sync); },
+    async pendingFeedbackAppointments(at) { return [...bookings.values()].filter(row=>row.status==='confirmed'
+      && row.response?.feedbackSync?.status==='pending'&&!row.response.feedbackSync.reviewRequired
+      && (!row.response.feedbackSync.nextAttemptAt||row.response.feedbackSync.nextAttemptAt<=at)).map(row=>row.id); },
+    async commentStatus(hash) { return comments.get(hash)||null; },
     async reservations() { return [...bookings.values()].filter(b=>['pending','confirmed'].includes(b.status)); },
     async insertPending(row) { bookings.set(row.id,structuredClone({...row,createdAt:new Date(NOW).toISOString()})); },
     async confirm(id,eventId,response) { Object.assign(bookings.get(id),{status:'confirmed',bitrixEventId:eventId,response:structuredClone(response)}); },
@@ -44,8 +53,8 @@ function memoryStore() {
     async hasNewerBooking(row) { return [...bookings.values()].some(other=>other.id!==row.id && other.status==='confirmed'
       && other.response?.crmSync?.requiresResponsible && other.response.crmSync.dealId===row.response.crmSync.dealId
       && other.createdAt>=row.createdAt); },
-    async claimComment(hash) { if(comments.has(hash)) return false;comments.add(hash);return true; },
-    async confirmComment() {},
+    async claimComment(hash) { if(comments.has(hash)) return false;comments.set(hash,'pending');return true; },
+    async confirmComment(hash) { comments.set(hash,'confirmed'); },
   };
 }
 function fixture(store = memoryStore(), pool = advisors) {
@@ -53,7 +62,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   let failCreate=false, failStage=false, stage='C370:NEW', category='370', omitCalendar=false;
   let responsible='99', ignoreResponsible=false, blockedOwner=null, eventOverride={}, time=NOW;
   let registered = {id_negociacion:'777'};
-  let summary = '', ignoreSummary = false;
+  let summary = '', ignoreSummary = false, failComment = false;
   let appointmentDate = '', ignoreAppointmentDate = false;
   const calls=[], events=[];
   const database={scheduling:store,findClienteByPhone:async()=>registered};
@@ -80,7 +89,7 @@ function fixture(store = memoryStore(), pool = advisors) {
       if(!ignoreSummary && Object.hasOwn(params.fields,DEAL_SUMMARY_FIELD)) summary=params.fields[DEAL_SUMMARY_FIELD];
       if(!ignoreAppointmentDate && Object.hasOwn(params.fields,APPOINTMENT_DATE_FIELD)) appointmentDate=params.fields[APPOINTMENT_DATE_FIELD];
       if(!ignoreResponsible && params.fields.ASSIGNED_BY_ID) responsible=String(params.fields.ASSIGNED_BY_ID);return true; }
-    if(method==='crm.timeline.comment.add') return '600';
+    if(method==='crm.timeline.comment.add') { if(failComment) throw new Error('Unknown comment delivery');return '600'; }
     throw new Error('Unexpected method: '+method);
   }};
   const restart=()=>createSchedulingService({database,bitrix,advisors:pool,now:()=>time});
@@ -90,7 +99,7 @@ function fixture(store = memoryStore(), pool = advisors) {
       rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años',obligacion_vivienda_activa:'si'}});return result.clientId;
     },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
   set missingDeal(v){missingDeal=v;},set dealReadError(v){dealReadError=v;},
-  get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},
+  get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},set failComment(v){failComment=v;},
   get appointmentDate(){return appointmentDate;},set appointmentDate(v){appointmentDate=v;},set ignoreAppointmentDate(v){ignoreAppointmentDate=v;},
   set ignoreResponsible(v){ignoreResponsible=v;},set blockedOwner(v){blockedOwner=v;},set eventOverride(v){eventOverride=v;},
   get stage(){return stage;},set stage(v){stage=v;},set category(v){category=v;},set failCreate(v){failCreate=v;},
@@ -336,6 +345,61 @@ async function scenarios(t, create) {
     await Promise.all([f.service.upsert(body),f.service.upsert(body)]);
     assert.equal(f.calls.filter(c=>c.method==='crm.deal.update').length,1);
     assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,1);
+  });
+  await t.test('la confirmación actualiza resumen y comentario con la cita real una sola vez',async()=>{
+    const f=await create();const code=await f.profile();
+    const profile=await f.store.getProfile(code);
+    const summary='RESUMEN Y FEEDBACK DE CHATFUEL\n\nCONTEXTO DE ATENCIÓN\n• Motivo de atención: perfilamiento por WhatsApp con Chatfuel. No se registra una reserva de cita desde este resumen.';
+    await f.service.upsert({...profile.data,phone:profile.phone,summary});
+    const booked=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'feedback-automatic');
+    assert.equal((await f.store.getAppointment(booked.data.appointmentId)).response.feedbackSync.status,'pending');
+    await f.restart().retryPendingCrm();
+    assert.match(f.summary,/RESUMEN DE LA CITA\n• Estado: confirmada en Bitrix/);
+    assert.match(f.summary,/3 de noviembre de 2026/);assert.match(f.summary,/9:00.*9:30.*hora de Colombia/);
+    assert.match(f.summary,/Duración: 30 minutos/);assert.match(f.summary,/Zoom/);
+    assert.match(f.summary,/Asesor asignado: Asesor prueba/);
+    assert.match(f.summary,new RegExp('Identificador del evento en Bitrix: '+booked.data.bitrixEventId));
+    assert.doesNotMatch(f.summary,/No se registra una reserva/);
+    const comment=f.calls.filter(c=>c.method==='crm.timeline.comment.add').at(-1).params.fields.COMMENT;
+    assert.match(comment,/\[b\]RESUMEN DE LA CITA\[\/b\]/);
+    const count=f.calls.filter(c=>c.method==='crm.timeline.comment.add').length;
+    await f.restart().retryPendingCrm();
+    await f.service.upsert({...profile.data,phone:profile.phone,summary});
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,count);
+    assert.equal(f.events.length,1);assert.equal(f.summary.split('\nRESUMEN DE LA CITA\n').length,2);
+  });
+  await t.test('un fallo del resumen conserva la cita y el worker recupera el comentario después',async()=>{
+    const f=await create();const code=await f.profile();const profile=await f.store.getProfile(code);
+    await f.service.upsert({...profile.data,phone:profile.phone,summary:'Perfilamiento confirmado'});
+    const booked=await f.service.book(code,request,'feedback-retry');
+    f.ignoreSummary=true;await f.restart().retryPendingCrm();
+    assert.equal((await f.store.getAppointment(booked.data.appointmentId)).response.feedbackSync.status,'pending');
+    assert.equal(f.events.length,1);
+    f.ignoreSummary=false;f.advance(31_000);await f.restart().retryPendingCrm();
+    assert.equal((await f.store.getAppointment(booked.data.appointmentId)).response.feedbackSync.status,'completed');
+    assert.match(f.summary,/RESUMEN DE LA CITA/);assert.equal(f.events.length,1);
+  });
+  await t.test('una negociación distinta no recibe el resumen de una cita vinculada a la anterior',async()=>{
+    const f=await create();const code=await f.profile();const profile=await f.store.getProfile(code);
+    await f.service.upsert({...profile.data,phone:profile.phone,summary:'Perfil para asesor'});
+    const booked=await f.service.book(code,{...request,bitrixDealId:'777',bitrixStageId:'C370:EXECUTING'},'feedback-changed-deal');
+    f.registered=null;
+    const sync=await f.service.syncAppointmentFeedback(booked.data.appointmentId);
+    assert.equal(sync.reviewRequired,true);assert.equal(sync.lastError,'FEEDBACK_DEAL_CHANGED');
+    assert.equal(f.events.length,1);
+  });
+  await t.test('un resultado incierto al publicar feedback no vuelve a enviar el comentario',async()=>{
+    const f=await create();const code=await f.profile();const profile=await f.store.getProfile(code);
+    await f.service.upsert({...profile.data,phone:profile.phone,summary:'Datos confirmados de prueba'});
+    const booked=await f.service.book(code,request,'feedback-unknown');
+    f.failComment=true;await f.service.retryPendingCrm();
+    const count=f.calls.filter(c=>c.method==='crm.timeline.comment.add').length;
+    f.failComment=false;f.advance(31_000);await f.restart().retryPendingCrm();
+    const sync=(await f.store.getAppointment(booked.data.appointmentId)).response.feedbackSync;
+    assert.equal(sync.status,'pending');assert.equal(sync.reviewRequired,true);
+    assert.equal(sync.lastError,'COMMENT_CONFIRMATION_REQUIRED');
+    assert.equal(f.calls.filter(c=>c.method==='crm.timeline.comment.add').length,count);
+    assert.equal(f.events.length,1);
   });
   await t.test('feedback antes y después de reservar conserva evento, vínculo, responsable e idempotencia',async()=>{
     const f=await create();

@@ -5,7 +5,7 @@ import { bogotaToday, candidateDates, parseBitrixDate, weekdayForDate } from './
 import { calculateAdvisorDateSlots } from './appointmentAdvisorAvailability.js';
 import { requireBitrixEventId } from './appointmentBooking.js';
 import { confirmedCalendarOwner } from './confirmedEvent.js';
-import { DEAL_SUMMARY_FIELD, timelineSummary, bitrixSummaryText } from './profileSummary.js';
+import { DEAL_SUMMARY_FIELD, timelineSummary, bitrixSummaryText, withAppointmentSummary, PROFILE_FEEDBACK_VERSION } from './profileSummary.js';
 import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
 import { evaluateRchEligibility } from './rchEligibility.js';
 import { synchronizeRejection } from './rejection.js';
@@ -73,7 +73,15 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     // summary; a missing match never creates an unrelated Bitrix deal.
     if (registered && body.summary) {
       const id = String(registered.id_negociacion);
-      const summary = bitrixSummaryText(body.summary);
+      const latest = await store.latestAppointment(profile.clientCode);
+      const linkedDeal = latest?.request?.bitrixDealId || latest?.response?.crmSync?.dealId;
+      const appointment = !linkedDeal || String(linkedDeal) === id ? latest : null;
+      const fullSummary = withAppointmentSummary(body.summary, appointment, {
+        advisorName:advisors.find(a=>a.id===appointment?.advisorId)?.name || '',now:now(),
+      });
+      const saved = await store.getProfile(profile.clientCode);
+      await store.saveProfile(saved, {...body,summary:fullSummary});
+      const summary = bitrixSummaryText(fullSummary);
       await store.withLock('profile-summary:' + id, async db => {
         const current = await deal(id);
         // A summary field write is safe to retry. Verify it before claiming a comment,
@@ -88,10 +96,13 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
             ENTITY_ID: id, ENTITY_TYPE: 'deal', COMMENT: timelineSummary(summary),
           } });
           await db.confirmComment(hash, requireBitrixEventId(commentId));
+        } else if (await db.commentStatus(hash) !== 'confirmed') {
+          // An unknown send result is not permission to post the comment again.
+          fail('COMMENT_CONFIRMATION_REQUIRED');
         }
       });
     }
-    return { ok: true, persisted: true, clientId: profile.clientCode, rejectionSync };
+    return { ok: true, persisted: true, clientId: profile.clientCode, rejectionSync, feedbackPersisted:Boolean(registered && body.summary) };
   }
   async function syncRejectedProfile(code) {
     const profile = await store.getProfile(code);
@@ -114,6 +125,36 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
       nextAttemptAt:result.status==='pending' ? new Date(now()+Math.min(1_800_000,30_000*2**Math.min(attempts-1,6))).toISOString() : null };
     await store.saveRejectionSync(code, result);
     return result;
+  }
+  async function syncAppointmentFeedback(id) {
+    const initial = await store.getAppointment(id);
+    if (!initial || initial.status !== 'confirmed' || !initial.bitrixEventId) return null;
+    const dealId = initial.response?.crmSync?.dealId || initial.request?.bitrixDealId;
+    return store.withLock('sync:' + (dealId || id), async db => {
+      const row = await db.getAppointment(id);
+      const profile = await db.getProfile(row.clientCode);
+      const previous = row.response?.feedbackSync;
+      const attempts = Number(previous?.attempts || 0) + 1;
+      let outcome;
+      try {
+        if (!profile?.data?.summary) {
+          outcome={status:'skipped',reason:'NO_PROFILE_SUMMARY',attempts};
+        } else {
+          const registered=await registeredClient(profile.phone);
+          if (dealId && String(registered.client?.id_negociacion) !== String(dealId)) fail('FEEDBACK_DEAL_CHANGED');
+          const result=await upsert({...profile.data,phone:profile.phone,externalLeadId:profile.clientCode});
+          outcome={status:result.feedbackPersisted?'completed':'skipped',attempts,
+            version:PROFILE_FEEDBACK_VERSION,nextAttemptAt:null,lastError:null};
+        }
+      } catch (error) {
+        const code=/^[A-Z_]{1,64}$/.test(error.code||'')?error.code:'FEEDBACK_SYNC_UNAVAILABLE';
+        outcome={status:'pending',attempts,lastError:code,version:PROFILE_FEEDBACK_VERSION,
+          reviewRequired:['FEEDBACK_DEAL_CHANGED','COMMENT_CONFIRMATION_REQUIRED'].includes(code)||attempts>=8,
+          nextAttemptAt:new Date(now()+Math.min(1_800_000,30_000*2**Math.min(attempts-1,6))).toISOString()};
+      }
+      await db.saveFeedbackSync(id,outcome);
+      return outcome;
+    });
   }
   async function calendars(from, to, db = store) {
     const payload = await calendar.call('calendar.accessibility.get', { from, to, users: advisors.map(a => Number(a.bitrixUserId)) });
@@ -276,7 +317,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         if (!slot) fail('SLOT_UNAVAILABLE');
         const advisor = advisors.find(a => a.id === slot.advisorId);
         const id = randomUUID(), marker = `CHATFUEL_APPOINTMENT:${id}`;
-        const response = { marker, crmSync: requestedDeal ? {
+        const response = { marker, ...(profile.data?.summary ? {feedbackSync:{status:'pending',attempts:0,nextAttemptAt:null}} : {}), crmSync: requestedDeal ? {
           dealId: requestedDeal, stageId: APPOINTMENT_STAGE, fromStageId: originalStage, status: 'pending',
           requiresResponsible:true,fromResponsibleId:originalResponsible,
           requiresAppointmentDate:true,fromAppointmentDate:originalAppointmentDate,
@@ -301,7 +342,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     return resultFor(row, row.duplicate, sync);
   }
   return {
-    availability, book, resolve, upsert, syncCrm,
+    availability, book, resolve, upsert, syncCrm, syncAppointmentFeedback,
     async findRegisteredClient(phone){return (await registeredClient(phone)).client;},
     async getBookingState({appointmentId,key,clientCode}) {
       const row = appointmentId ? await store.getAppointment(appointmentId) : key ? await store.getByKey(key) : null;
@@ -311,9 +352,11 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     async retryPendingCrm() {
       const ids = await store.pendingCrmAppointments(new Date(now()).toISOString());
       for (const id of ids) await syncCrm(id);
+      const feedbackIds = await store.pendingFeedbackAppointments(new Date(now()).toISOString());
+      for (const id of feedbackIds) await syncAppointmentFeedback(id);
       const rejections = await store.pendingRejectionProfiles(new Date(now()).toISOString());
       for (const code of rejections) await syncRejectedProfile(code);
-      return ids.length + rejections.length;
+      return ids.length + feedbackIds.length + rejections.length;
     },
     async request(path, body, key) {
       if (path === '/api/v1/leads/resolve') return resolve(body);
