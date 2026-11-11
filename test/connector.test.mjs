@@ -148,7 +148,11 @@ test('una cita pasada confirmada permite pedir otra sin borrar ni duplicar la an
   assert.equal(f.bookings().length,1);
   f.advance(7*24*60*60_000);
   const renewed=await f.request('start');
-  assert.match(renewed.message,/mañana o en la tarde/);
+  assert.match(renewed.message,/cita registrada/);
+  assert.match(renewed.message,/2026/);
+  assert.match(renewed.message,/fecha ya pasó/);
+  assert.doesNotMatch(renewed.message,/mañana o en la tarde/);
+  assert.match((await f.request('step','de acuerdo')).message,/mañana o en la tarde/);
   assert.equal(f.bookings().length,1);
 });
 
@@ -157,6 +161,16 @@ test('una cita confirmada futura sigue protegida ante una nueva solicitud',async
   await prepareOptions(f);await f.request('step','1');await f.request('step','si');
   const repeated=await f.request('start');
   assert.match(repeated.message,/ya está confirmada/);
+  assert.equal(f.bookings().length,1);
+});
+
+test('la cita futura se informa con su fecha aunque el estado de conversación haya vencido',async()=>{
+  const f=fixture();
+  await prepareOptions(f);await f.request('step','1');await f.request('step','si');
+  f.advance(31*60_000);
+  const response=await f.request('start');
+  assert.match(response.message,/ya está confirmada/);
+  assert.doesNotMatch(response.message,/no pude|verificando/i);
   assert.equal(f.bookings().length,1);
 });
 

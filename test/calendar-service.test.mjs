@@ -49,6 +49,7 @@ function memoryStore() {
   };
 }
 function fixture(store = memoryStore(), pool = advisors) {
+  let missingDeal=false,dealReadError=false;
   let failCreate=false, failStage=false, stage='C370:NEW', category='370', omitCalendar=false;
   let responsible='99', ignoreResponsible=false, blockedOwner=null, eventOverride={}, time=NOW;
   let registered = {id_negociacion:'777'};
@@ -69,7 +70,11 @@ function fixture(store = memoryStore(), pool = advisors) {
       if(failCreate) throw new Error('Lost response');
       return id;
     }
-    if(method==='crm.deal.get') return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',UF_CRM_1584616588730:'573000000001',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
+    if(method==='crm.deal.get') {
+      if(missingDeal)throw Object.assign(new Error('NEGOCIACION_NO_ENCONTRADA'),{code:'NEGOCIACION_NO_ENCONTRADA'});
+      if(dealReadError)throw Object.assign(new Error('BITRIX_ERROR'),{code:'BITRIX_ERROR'});
+      return {ID:'777',CATEGORY_ID:category,STAGE_ID:stage,ASSIGNED_BY_ID:responsible,CLOSED:'N',UF_CRM_1584616588730:'573000000001',[DEAL_SUMMARY_FIELD]:summary,[APPOINTMENT_DATE_FIELD]:appointmentDate};
+    }
     if(method==='crm.deal.update') { if(failStage) throw new Error('CRM unavailable');
       if(params.fields.STAGE_ID) stage=params.fields.STAGE_ID;
       if(!ignoreSummary && Object.hasOwn(params.fields,DEAL_SUMMARY_FIELD)) summary=params.fields[DEAL_SUMMARY_FIELD];
@@ -83,7 +88,8 @@ function fixture(store = memoryStore(), pool = advisors) {
   return {service,database,store,calls,events,async profile(phone='573000000001'){
     const result=await service.upsert({phone,contactName:'Prueba simulada',answers:{rch_banco:'Bancolombia',
       rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años',obligacion_vivienda_activa:'si'}});return result.clientId;
-  },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
+    },restart,advance(ms){time+=ms;},get responsible(){return responsible;},set responsible(v){responsible=v;},
+  set missingDeal(v){missingDeal=v;},set dealReadError(v){dealReadError=v;},
   get summary(){return summary;},set ignoreSummary(v){ignoreSummary=v;},
   get appointmentDate(){return appointmentDate;},set appointmentDate(v){appointmentDate=v;},set ignoreAppointmentDate(v){ignoreAppointmentDate=v;},
   set ignoreResponsible(v){ignoreResponsible=v;},set blockedOwner(v){blockedOwner=v;},set eventOverride(v){eventOverride=v;},
@@ -91,6 +97,25 @@ function fixture(store = memoryStore(), pool = advisors) {
   set failStage(v){failStage=v;},set registered(v){registered=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
+  await t.test('una negociación eliminada no bloquea horarios ni vincula citas al ID inexistente',async()=>{
+    const f=await create();f.missingDeal=true;
+    const code=await f.profile();
+    const profile=await f.store.getProfile(code);
+    assert.equal(profile.data.crmLinkIssue.code,'REGISTERED_DEAL_DELETED');
+    assert.equal(await f.service.findRegisteredClient(profile.phone),null);
+    assert.equal((await f.database.findClienteByPhone(profile.phone)).id_negociacion,'777');
+    const result=await f.service.book(code,request,'deleted-deal-unlinked');
+    assert.equal(result.data.status,'confirmed');
+    assert.equal(result.data.crmSync,null);
+    assert.equal(f.events.length,1);
+    assert.equal(f.calls.filter(c=>c.method==='crm.deal.update'||c.method==='crm.timeline.comment.add').length,0);
+    assert.deepEqual(f.calls.find(c=>c.method==='calendar.event.add').params.crm_fields||[],[]);
+  });
+  await t.test('un error de permisos o disponibilidad de Bitrix no se confunde con una negociación eliminada',async()=>{
+    const f=await create();f.dealReadError=true;
+    await assert.rejects(f.profile(),/BITRIX_ERROR/);
+    assert.equal(f.events.length,0);
+  });
   await t.test('la agenda rechaza casos descartados e incompletos antes de crear el evento',async()=>{
     for(const patch of [{rch_banco:'BBVA'},{rch_reportes_negativos:'si'},{rch_puede_aumentar_cuota:'no'},
       {rch_tiempo_pagando:'15 años'},{rch_plazo_inicial:''},{rch_banco:''},{rch_reportes_negativos:'desconocido'},

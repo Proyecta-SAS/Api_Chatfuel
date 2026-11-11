@@ -39,6 +39,17 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     if (String(row.ID) !== id || String(row.CATEGORY_ID) !== '370') fail('INVALID_BITRIX_DEAL');
     return row;
   }
+  async function registeredClient(phone) {
+    const client=await database.findClienteByPhone(phone);
+    if(!client)return {client:null};
+    try{await deal(String(client.id_negociacion));return {client};}
+    catch(error){
+      // A deleted CRM deal is no longer a valid association. Keep the local
+      // record as history; never attach a new event to a nonexistent deal.
+      if(error.code!=='NEGOCIACION_NO_ENCONTRADA')throw error;
+      return {client:null,missingDealId:String(client.id_negociacion)};
+    }
+  }
   async function resolve(body) {
     const variants = phoneVariants(body.phone);
     if (!variants.length) fail('INVALID_PHONE');
@@ -53,7 +64,11 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     // Stage synchronization is independent from rendering a CRM summary. A text
     // field failure must not prevent a verified commercial rejection.
     const rejectionSync = await syncRejectedProfile(profile.clientCode);
-    const registered = await database.findClienteByPhone(body.phone);
+    const registration=await registeredClient(body.phone);
+    const registered=registration.client;
+    if(registration.missingDealId)await store.saveProfile(profile,{...body,
+      crmLinkIssue:{code:'REGISTERED_DEAL_DELETED',dealId:registration.missingDealId,
+        detectedAt:new Date(now()).toISOString()}});
     // Profiles are local. An existing registered deal receives a deduplicated
     // summary; a missing match never creates an unrelated Bitrix deal.
     if (registered && body.summary) {
@@ -287,6 +302,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
   }
   return {
     availability, book, resolve, upsert, syncCrm,
+    async findRegisteredClient(phone){return (await registeredClient(phone)).client;},
     async getBookingState({appointmentId,key,clientCode}) {
       const row = appointmentId ? await store.getAppointment(appointmentId) : key ? await store.getByKey(key) : null;
       if (row && row.clientCode !== clientCode) fail('IDEMPOTENCY_KEY_CONFLICT');

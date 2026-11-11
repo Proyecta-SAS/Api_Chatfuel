@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.28';
+export const RELEASE_VERSION = '1.0.29';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -368,6 +368,12 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long',
       day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }).format(new Date(slot.startAt));
   }
+  function recordedAppointmentMessage(state) {
+    const date=new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
+      weekday:'long',day:'numeric',month:'long',year:'numeric',hour:'numeric',minute:'2-digit'})
+      .format(new Date(state.slot.startAt));
+    return `Veo una cita registrada para ${date} (hora de Colombia). Esa fecha ya pasó. ¿Quieres que revisemos horarios para una nueva asesoría?`;
+  }
   async function available(clientCode, from, to, window, excluded = []) {
     const result = await crm(`/api/v1/leads/${encodeURIComponent(clientCode)}/availability`, {
       advisorPool: true, mode: 'next_days', durationMinutes: APPOINTMENT_DURATION_MINUTES, quantity: 2,
@@ -541,7 +547,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             const state = decode(fields.bitrix_agenda_estado, node.id);
             const resumeEligibleBooking = state?.step === 'eligibility_pending'
               && evaluateRchEligibility(fields).status === 'APLICA';
-            const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending'].includes(state.step);
+            const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending','past_appointment'].includes(state.step);
             if ((!resumeEligibleBooking && !yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
               || active || yes(fields.bitrix_reserva_pendiente) || !env.CHATFUEL_BOOKING_FLOW_ID) continue;
             const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
@@ -661,23 +667,28 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       const previousBooking=state || expired;
       const previousEnd=Date.parse(previousBooking?.slot?.endAt);
       const previousStart=Date.parse(previousBooking?.slot?.startAt);
-      if(operation==='start' && previousBooking?.step==='confirmed'
+      if(previousBooking?.step==='confirmed'
         && /^\d{1,20}$/.test(String(previousBooking.bitrixEventId||''))
         && Number.isFinite(previousStart) && Number.isFinite(previousEnd)
         && previousStart<previousEnd && previousEnd<=now()
         && !yes(fields.bitrix_reserva_pendiente)){
-        // A signed, confirmed appointment that has already ended is history,
-        // not an uncertain reservation. Keep its durable record and start a
-        // new offer only after another explicit booking request.
+        // Explain the previous appointment before offering a new one. Do not
+        // interpret an answer to the old invitation as accepting a second visit.
         bookingMayExist=false;
-        return profileOrOptions(contactId,phone,fields);
+        return reply(contactId,{...previousBooking,step:'past_appointment'},
+          recordedAppointmentMessage(previousBooking));
       }
       // Profile answers and morning/afternoon preferences can resume; an expired
       // time selection never authorizes a reservation without fresh availability.
-      if (expired && ['name','city','active','period'].includes(expired.step)) state = expired;
+      if (expired && ['name','city','active','period','past_appointment'].includes(expired.step)) state = expired;
+      if(!state && expired?.step==='confirmed'
+        && /^\d{1,20}$/.test(String(expired.bitrixEventId||''))
+        && Number.isFinite(previousStart) && Number.isFinite(previousEnd)
+        && previousStart<previousEnd && previousEnd>now()
+        && !yes(fields.bitrix_reserva_pendiente))state=expired;
       // Safely bring an old selection/profile into the local store. A reservation
       // already sent to the former engine must instead be reconciled by its key.
-      if (state?.clientCode && state.engine !== 'local-v1' && !['booking', 'confirmed', 'check_pending'].includes(state.step)) {
+      if (state?.clientCode && state.engine !== 'local-v1' && !['booking', 'confirmed', 'check_pending','past_appointment'].includes(state.step)) {
         const clientCode = await upsertLead(contactId, phone, { ...fields, crm_30x_codigo: state.clientCode });
         state = { ...state, clientCode };
       }
@@ -727,6 +738,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         if (expired.step !== 'day' && context.date >= dateAt(now()) && context.date <= addDays(dateAt(now()),21)) return offerTimes(contactId,context,context.date);
         return offerDays(contactId,clientCode,window);
       }
+      if(operation==='start' && state?.step==='past_appointment')return reply(contactId,state,recordedAppointmentMessage(state));
       if (operation === 'start' && state?.step !== 'booking' && !(expired?.step === 'period' && periodFrom(answer))) return profileOrOptions(contactId, phone, fields);
       if (!state) return profileOrOptions(contactId,phone,fields);
       if (/(?:hablar|comunicar|pasame|pasarme|contactar).*(?:asesor|persona|humano)|(?:asesor|persona|humano)\s+ahora|^(?:quiero|necesito)\s+(?:un\s+)?asesor|\b(?:demanda|embargo|remate|cobro juridico|urgente)\b/.test(normalize(answer))) return reply(contactId,
@@ -737,6 +749,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { step: 'cancelled', clientCode: state.clientCode },
         'Dejamos la cita pendiente. No reservé ningún horario; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
+      if(state.step==='past_appointment'){
+        if(confirmBooking(answer)||explicitBooking(answer))return profileOrOptions(contactId,phone,fields);
+        return reply(contactId,state,recordedAppointmentMessage(state));
+      }
       if(['period','day','choose','confirm'].includes(state.step)) {
         const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
       }
@@ -810,7 +826,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         let bookingDealId = Object.hasOwn(state, 'bookingDealId') ? state.bookingDealId : null;
         if (!Object.hasOwn(state, 'bookingDealId') && state.step !== 'booking' && database) {
           try {
-            const registered = await database.findClienteByPhone(phone);
+            const registered = scheduling.findRegisteredClient
+              ? await scheduling.findRegisteredClient(phone)
+              : await database.findClienteByPhone(phone);
             bookingDealId = registered ? String(registered.id_negociacion) : null;
             if (bookingDealId !== null && !/^[1-9]\d*$/.test(bookingDealId)) throw new Error('INVALID_DEAL');
           } catch (error) {
