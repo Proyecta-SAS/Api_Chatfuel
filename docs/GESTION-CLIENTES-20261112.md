@@ -1,4 +1,4 @@
-# Gestión de clientes - V1.0.34
+# Gestión de clientes - V1.0.35
 
 Por solicitud expresa del usuario se replican en Chatfuel los tres cambios ya
 aprobados: nueva pregunta de incremento mínimo, convenio con banco admitido y
@@ -21,3 +21,7 @@ que no envía mensajes a clientes ni crea reservas reales.
 
 La plataforma limita el prompt principal a 5000 caracteres y cada captura a 450.
 Los textos finales se leyeron de vuelta y coinciden con la configuración versionada.
+
+El observador conserva TELEFONO_AMBIGUO como bloqueo de identidad por contacto;
+continúa el ciclo y expone ambiguousContacts sin elegir negociaciones ni marcar
+esos perfiles como sincronizados. Los fallos operativos conservan sus reintentos.

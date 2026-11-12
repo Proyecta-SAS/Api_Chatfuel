@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.34';
+export const RELEASE_VERSION = '1.0.35';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -289,7 +289,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   const handoffStatus = { enabled: env.HANDOFF_SYNC_ENABLED === 'true', connected: false,
     lastSyncAt: null, synchronized: 0, bookingFlowsStarted: 0, lastError: null,
     incomingRecoveryEnabled: env.INCOMING_RECOVERY_ENABLED === 'true', incomingRecovered: 0,
-    incomingRecoveryLastError: null, rejectionSyncLastError:null };
+    incomingRecoveryLastError: null, rejectionSyncLastError:null, ambiguousContacts:0 };
   let syncing = null;
   // Contact search can briefly return an old attribute snapshot after a write.
   // Keep successful writes locally too, and use a separate schema marker so an
@@ -512,6 +512,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     syncing = (async () => {
       let after = null;
       let synchronized = 0;
+      let ambiguousContacts = 0;
       do {
         const data = await graphql(`query HandoffCandidates($botID:BotID!,$after:ContactSearchCursor,$names:[AttributeName!]){
           bot(id:$botID){contactChatsConnection(first:100,after:$after,assigneeFilter:{type:Any},unreadOnly:false,salesStageV2Filter:[]){
@@ -551,7 +552,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               if(synchronizedProfiles.size>5000)synchronizedProfiles.delete(synchronizedProfiles.keys().next().value);
               synchronized++;
               handoffStatus.rejectionSyncLastError = null;
-            } catch { handoffStatus.rejectionSyncLastError = 'REJECTION_SYNC_FAILED'; }
+            } catch (error) {
+              if (error.code === 'TELEFONO_AMBIGUO') ambiguousContacts++;
+              else handoffStatus.rejectionSyncLastError = 'REJECTION_SYNC_FAILED';
+            }
             continue;
           }
           if (handoffStatus.incomingRecoveryEnabled && !node.assignee && node.salesStageV2 === 'New'
@@ -613,7 +617,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           const conversation = await graphql('query HandoffState($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status}}}',
             { botID, id: node.id });
           if (conversation.bot.conversation.status !== 'open') continue;
-          const clientCode = await upsertLead(node.id, phone, fields, { handoff: true, displayName: node.name });
+          let clientCode;
+          try { clientCode = await upsertLead(node.id, phone, fields, { handoff: true, displayName: node.name }); }
+          catch (error) {
+            // Preserve the identity guard. A duplicated phone needs human review,
+            // but it must not prevent the remaining contacts from being processed.
+            if (error.code !== 'TELEFONO_AMBIGUO') throw error;
+            ambiguousContacts++;
+            continue;
+          }
           await setAttributes(node.id, { crm_30x_codigo: clientCode, crm_30x_profile_comment_hash: fingerprint,
             crm_30x_handoff_estado: 'registrado', crm_30x_handoff_fecha: new Date(now()).toISOString() });
           synchronizedProfiles.set(node.id, fingerprint);
@@ -624,6 +636,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       } while (after);
       handoffStatus.lastSyncAt = new Date(now()).toISOString();
       handoffStatus.synchronized += synchronized;
+      handoffStatus.ambiguousContacts = ambiguousContacts;
       handoffStatus.lastError = null;
       return { ok: true, synchronized };
     })();

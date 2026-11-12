@@ -1,3 +1,9 @@
+# V1.0.35 - 2026-11-12
+
+- Un teléfono con varias negociaciones permanece pendiente de revisión y deja de bloquear el ciclo de sincronización de otros contactos.
+- Expone solo el número de contactos ambiguos en salud, sin teléfonos ni datos personales.
+- Mantiene sin cambios las tres mejoras comerciales y la insolvencia pendiente.
+
 # V1.0.34 - 2026-11-12
 
 - Conserva los textos efectivamente verificados en Chatfuel: prompt menor a 5000 caracteres y captura menor a 450.

@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  database = null, stagePending = false, resolveError = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
+  database = null, stagePending = false, resolveError = null, resolveErrorCode = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
     rch_plazo_inicial:'20 años',rch_tiempo_pagando:'10 años', ...initial };
@@ -98,6 +98,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   };
   const handle = createHandler({ env: { CHATFUEL_BOT_ID: 'mock-bot', CHATFUEL_BOOKING_SECRET: SECRET,
     CHATFUEL_API_TOKEN: 'mock-chatfuel-token', CHATFUEL_BOOKING_FLOW_ID: 'mock-flow' }, fetchImpl: mockFetch, now: () => time, database, scheduling: { request: async (path, body, key) => {
+      if(resolveErrorCode && path.endsWith('/leads/resolve'))throw Object.assign(new Error(resolveErrorCode),{code:resolveErrorCode,retryable:false});
       const response = await mockFetch('local:' + path, { body: JSON.stringify(body), headers: { 'Idempotency-Key': key } });
       const result = await response.json();
       if (!response.ok || result.ok !== true) throw Object.assign(new Error(
@@ -746,6 +747,29 @@ test('a rejected CRM write does not mark handoff synchronization as complete', a
   assert.equal(f.fields.crm_30x_handoff_hash, undefined);
   assert.equal(f.fields.crm_30x_handoff_estado, undefined);
   assert.equal(f.handle.handoffStatus.lastError, 'HANDOFF_SYNC_FAILED');
+});
+
+test('un teléfono ambiguo queda pendiente sin abortar el ciclo ni marcarlo sincronizado',async()=>{
+  const f=fixture({human:true,resolveErrorCode:'TELEFONO_AMBIGUO'});
+  for(let i=0;i<2;i++){
+    assert.equal((await f.handle.synchronizeHandoffs()).synchronized,0);
+    assert.equal(f.handle.handoffStatus.ambiguousContacts,1);
+    assert.equal(f.handle.handoffStatus.lastError,null);
+    assert.ok(f.handle.handoffStatus.lastSyncAt);
+  }
+  assert.equal(f.fields.crm_30x_handoff_estado,undefined);
+  assert.equal(f.fields.crm_30x_codigo,undefined);
+  assert.equal(f.calls.filter(c=>c.url.endsWith('/prospecting-bot/lead')).length,0);
+  assert.equal(f.bookings().length,0);
+});
+
+test('un descarte con teléfono ambiguo no pierde la protección de identidad ni bloquea el ciclo',async()=>{
+  const f=fixture({human:true,resolveErrorCode:'TELEFONO_AMBIGUO',initial:{rch_banco:'BBVA'}});
+  assert.equal((await f.handle.synchronizeHandoffs()).synchronized,0);
+  assert.equal(f.handle.handoffStatus.ambiguousContacts,1);
+  assert.equal(f.handle.handoffStatus.lastError,null);
+  assert.equal(f.fields.crm_30x_codigo,undefined);
+  assert.equal(f.bookings().length,0);
 });
 
 test('handoff to an unassigned shared inbox creates the negotiation once', async () => {

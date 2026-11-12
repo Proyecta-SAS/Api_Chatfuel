@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.34
+# Api_Chatfuel — V1.0.35
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -106,7 +106,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.34"` y
+Después del push, `/health` debe indicar `version: "1.0.35"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 
