@@ -1,4 +1,4 @@
-# Gestión de clientes - V1.0.33
+# Gestión de clientes - V1.0.34
 
 Por solicitud expresa del usuario se replican en Chatfuel los tres cambios ya
 aprobados: nueva pregunta de incremento mínimo, convenio con banco admitido y
@@ -18,3 +18,6 @@ de aumentar más del 10 %. El interés condicionado y las dudas quedan pendiente
 Solo se felicita tras confirmar los cinco filtros. La reserva requiere elección
 y confirmación técnica. Los ensayos usan simuladores y la vista previa de Chatfuel,
 que no envía mensajes a clientes ni crea reservas reales.
+
+La plataforma limita el prompt principal a 5000 caracteres y cada captura a 450.
+Los textos finales se leyeron de vuelta y coinciden con la configuración versionada.

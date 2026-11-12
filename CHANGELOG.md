@@ -1,3 +1,8 @@
+# V1.0.34 - 2026-11-12
+
+- Conserva los textos efectivamente verificados en Chatfuel: prompt menor a 5000 caracteres y captura menor a 450.
+- Mantiene las mismas tres mejoras y la ruta de insolvencia pendiente.
+
 # V1.0.33 - 2026-11-12
 
 - Actualiza la pregunta de incremento mínimo y su interpretación en el conector.
