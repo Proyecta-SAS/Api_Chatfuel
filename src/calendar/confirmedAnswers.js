@@ -8,7 +8,7 @@ function questionField(text){
   const t=normalize(text.slice(text.lastIndexOf('¿')+1));
   if(/(?:con que|cual).*banco|(?:banco|entidad).*credito/.test(t))return 'rch_banco';
   if(/reportes? negativos?/.test(t))return 'rch_reportes_negativos';
-  if(/aumentar.*cuota/.test(t))return 'rch_puede_aumentar_cuota';
+  if(/aument(?:ar|ando).*cuota/.test(t))return 'rch_puede_aumentar_cuota';
   if(/(?:plazo\s+(?:original|inicial)|anos.*(?:tomaste|adquiriste|originalmente))/.test(t))return 'rch_plazo_inicial';
   if(/(?:cuanto tiempo|hace cuanto|cuantos anos).*pagando/.test(t))return 'rch_tiempo_pagando';
   return null;

@@ -257,10 +257,10 @@ test('la cita futura se informa con su fecha aunque el estado de conversación h
   assert.equal(f.bookings().length,1);
 });
 
-test('la capacidad sí podría permite completar datos y mostrar días y horarios reales',async()=>{
+test('la propuesta de incremento mínimo permite completar datos y mostrar días y horarios reales',async()=>{
   const f=fixture({initial:{rch_puede_aumentar_cuota:'desconocido',nombre_completo:'',ciudad_municipio:'',obligacion_vivienda_activa:''},
     bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'Si podría'},
-      {__typename:'WhatsAppOutTextMessage',text:'¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?'}]});
+      {__typename:'WhatsAppOutTextMessage',text:'¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?'}]});
   assert.match((await f.request('start')).message,/nombre completo/);
   assert.match((await f.request('step','Persona Ejemplo')).message,/ciudad/);
   assert.match((await f.request('step','Bogotá')).message,/hipotecario o leasing/);
@@ -268,6 +268,20 @@ test('la capacidad sí podría permite completar datos y mostrar días y horario
   assert.match((await f.request('step','mañana')).message,/día/);
   assert.match((await f.request('step','1')).message,/horarios libres/);
   assert.equal(f.fields.rch_puede_aumentar_cuota,'si');
+  assert.equal(f.bookings().length,0);
+});
+
+test('un sí a la propuesta financiera no acepta agendar aunque el perfil ya esté completo',async()=>{
+  const f=fixture({latestText:'Sí',initial:{'last user freeform input':'Sí'},previousReply:'¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?'});
+  await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+  assert.equal(f.bookings().length,0);
+});
+
+test('la felicitación con invitación reconoce dale sin crear una reserva automática',async()=>{
+  const f=fixture({latestText:'Dale',initial:{'last user freeform input':'Dale'},previousReply:'¡Felicitaciones! Aplicas para la reducción de crédito hipotecario según nuestros filtros iniciales. ¿Te gustaría agendar una cita de asesoría virtual de 30 minutos por Zoom con un asesor? Es una reunión a la que debes conectarte en el horario elegido.'});
+  await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
   assert.equal(f.bookings().length,0);
 });
 

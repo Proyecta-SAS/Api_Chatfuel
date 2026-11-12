@@ -5,6 +5,16 @@ const out=text=>({__typename:'WhatsAppOutTextMessage',text});
 const incoming=text=>({__typename:'WhatsAppInTextMessage',text});
 const original=()=>out('¿A cuántos años tomaste originalmente tu crédito? Por ejemplo: 15, 20 o 30 años.');
 const paid=()=>out('Gracias por aclararlo 😊 Entonces tomo como plazo original 30 años. Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?');
+const proposal=()=>out('¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?');
+
+test('la propuesta nueva conserva el sí y el no en capacidad, sin guardarlos como banco',()=>{
+  for(const [text,value] of [['Sí','si'],['Si podría','si'],['No','no'],['No puedo','no']]){
+    assert.deepEqual(reconcileQuestionnaireTimes({},[incoming(text),proposal()]),{rch_puede_aumentar_cuota:value});
+  }
+  for(const text of ['¿Cuánto subiría?','Depende del monto','Me gustaría pero no sé si podría']){
+    assert.deepEqual(reconcileQuestionnaireTimes({},[incoming(text),proposal()]),{});
+  }
+});
 test('la última corrección reemplaza los tiempos antiguos sin repetir el perfil',()=>{
   const chronological=[original(),incoming('20 años'),original(),incoming('a 30 años'),paid(),incoming('10 años'),
     original(),incoming('Ya te dije que 30 años'),paid(),incoming('10 años ya te lo habia dicho'),

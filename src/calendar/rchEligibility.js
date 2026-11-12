@@ -1,4 +1,4 @@
-export const RCH_POLICY_VERSION = 'rch-2026-11-06';
+export const RCH_POLICY_VERSION = 'rch-2026-11-12-client-wording';
 export const RCH_QUESTION_FIELDS = ['rch_reportes_negativos', 'rch_puede_aumentar_cuota', 'rch_plazo_inicial', 'rch_tiempo_pagando'];
 const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 const known = value => {
@@ -65,7 +65,7 @@ export function eligibilityMessage(result) {
   return ({
     rch_banco:'Para continuar con la revisión 😊, ¿con qué banco tienes actualmente tu crédito hipotecario o leasing habitacional?',
     rch_reportes_negativos:'Para continuar con la revisión, ¿actualmente tienes reportes negativos en centrales de riesgo?',
-    rch_puede_aumentar_cuota:'¿Tendrías la posibilidad de aumentar un poco el valor de tu cuota mensual?',
+    rch_puede_aumentar_cuota:'¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?',
     rch_plazo_inicial:'¿A cuántos años tomaste originalmente tu crédito? Por ejemplo: 15, 20 o 30 años.',
     rch_tiempo_pagando:'¿Cuánto tiempo llevas pagando tu crédito? Puedes indicarlo en años o meses.',
     obligacion_vivienda_activa:'¿Confirmas que actualmente tienes un crédito hipotecario o leasing habitacional activo?',

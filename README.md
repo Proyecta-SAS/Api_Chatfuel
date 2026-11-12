@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.32
+# Api_Chatfuel — V1.0.33
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -12,7 +12,7 @@ WhatsApp → Chatfuel → Api_Chatfuel → Bitrix24
 
 ## Funciones
 
-- La IA realiza las cinco preguntas de la guía RCH del 6 de noviembre de 2026.
+- La IA conserva los cinco filtros de la guía RCH con la redacción aprobada el 12 de noviembre de 2026: propuesta de incremento mínimo, convenio con banco admitido y felicitación antes de invitar a agendar. La ruta de insolvencia sigue pendiente.
 - Recupera aceptaciones repetidas después de «revisemos los horarios» cuando existe una invitación aceptada. Informa la fecha de una cita registrada, incluso si venció el estado conversacional; si ya pasó, pregunta antes de preparar una nueva. Las futuras o inciertas siguen protegidas.
 - Una negociación verificada como eliminada en Bitrix conserva su referencia histórica y deja de bloquear el perfil o los horarios. Las nuevas citas no se vinculan a ese ID inexistente; los errores de permisos y los teléfonos ambiguos mantienen sus protecciones.
 - Reconoce peticiones de consultar horarios como «me gustaría ver otro horario», «quiero otra cita» y «revisemos otros horarios» para retomar la agenda. Ver opciones no confirma una reserva; las negativas y condiciones no se toman como aceptación.
@@ -106,7 +106,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.32"` y
+Después del push, `/health` debe indicar `version: "1.0.33"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

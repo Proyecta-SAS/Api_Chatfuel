@@ -1,3 +1,10 @@
+# V1.0.33 - 2026-11-12
+
+- Actualiza la pregunta de incremento mínimo y su interpretación en el conector.
+- Prepara instrucciones y captura para convenio con el banco admitido y felicitación antes de ofrecer cita.
+- Conserva los filtros, el consentimiento separado y la agenda propia de Bitrix.
+- No activa una ruta de insolvencia ni modifica el motor de DalIA.
+
 # V1.0.22 - 2026-11-09
 
 - Sincroniza los descartes confirmados a NO APLICA CHATFUEL, también cuando el diálogo termina antes de ofrecer una cita.
