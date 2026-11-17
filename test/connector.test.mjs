@@ -275,6 +275,7 @@ test('una cita confirmada futura sigue protegida ante una nueva solicitud',async
   await prepareOptions(f);await f.request('step','1');await f.request('step','si');
   const repeated=await f.request('start');
   assert.match(repeated.message,/ya está confirmada/);
+  assert.match(repeated.message,/ten a la mano el extracto más reciente/);
   assert.equal(f.bookings().length,1);
 });
 
@@ -284,6 +285,7 @@ test('la cita futura se informa con su fecha aunque el estado de conversación h
   f.advance(31*60_000);
   const response=await f.request('start');
   assert.match(response.message,/ya está confirmada/);
+  assert.match(response.message,/ten a la mano el extracto más reciente/);
   assert.doesNotMatch(response.message,/no pude|verificando/i);
   assert.equal(f.bookings().length,1);
 });
@@ -346,13 +348,15 @@ test('la agenda confirma solo un perfil aplicable y conserva el aviso final de l
   const f=fixture();
   const start=await f.request('start');assert.match(start.message,/mañana o en la tarde/);
   const days=await f.request('step','mañana'),times=await f.request('step','1'),confirmation=await f.request('step','1');
-  for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares/);
+  for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares|ten a la mano el extracto/);
   const result=await f.request('step','sí');
   assert.match(result.message,/cita de asesoría virtual por Zoom quedó agendada/);assert.match(result.message,/30 minutos/);
   assert.match(start.message,/debes conectarte/);assert.match(confirmation.message,/puedes conectarte/);
   assert.match(result.message,/conectarte puntualmente/);
   assert.match(result.message,/La asesoría inicial es gratuita/);
-  assert.match(result.message,/extracto bancario COMPLETO de tu crédito en PDF/);
+  assert.match(result.message,/ten a la mano el extracto más reciente de tu crédito hipotecario/);
+  assert.match(result.message,/No necesitas enviarlo por este chat/);
+  assert.match(result.message,/El extracto debe estar completo, en PDF/);
   assert.match(result.message,/todos los titulares y quienes tomarán la decisión/);
   assert.doesNotMatch(result.message,/Tatiana|https?:\/\//);assert.equal(f.bookings().length,1);
 });

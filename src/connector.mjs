@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileSummary.js';
-import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calendar/policy.js';
+import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS, APPOINTMENT_PREPARATION_REMINDER } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.38';
+export const RELEASE_VERSION = '1.0.39';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -771,7 +771,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           } catch { /* The booking remains confirmed when CRM is unavailable. */ }
         }
         return reply(contactId, { ...state, crmSyncPending: pending,responsibleId },
-          `Tu cita ya está confirmada para ${label(state.slot)} (hora de Colombia).`,
+          `Tu cita ya está confirmada para ${label(state.slot)} (hora de Colombia).\n\n${APPOINTMENT_PREPARATION_REMINDER}`,
           { done: true, fields: { bitrix_negociacion_sync: reviewRequired ? 'revision_requerida' : pending ? 'pendiente' : state.bookingDealId ? 'completado' : 'no_aplica',
             ...(state.bookingDealId ? {bitrix_responsable_id:responsibleId,
               bitrix_responsable_sync:reviewRequired ? 'revision_requerida' : pending ? 'pendiente' : 'completado'} : {}) } });
@@ -928,7 +928,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu cita de asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos. 💻 Recuerda conectarte puntualmente a tu cita.\n\nLa asesoría inicial es gratuita y, para atenderla, es indispensable tener el extracto bancario COMPLETO de tu crédito en PDF y compartirlo por el canal autorizado. También deben estar todos los titulares y quienes tomarán la decisión.\n\nTe esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
+          `✅ Tu cita de asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos. 💻 Recuerda conectarte puntualmente a tu cita.\n\n${APPOINTMENT_PREPARATION_REMINDER}\n\nLa asesoría inicial es gratuita. El extracto debe estar completo, en PDF, y compartirse por el canal autorizado. También deben estar todos los titulares y quienes tomarán la decisión.\n\nTe esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',

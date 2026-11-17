@@ -1,4 +1,11 @@
-# Api_Chatfuel — V1.0.38
+# Api_Chatfuel — V1.0.39
+
+V1.0.39 destaca en la confirmación final el recordatorio de tener a la mano el
+extracto más reciente del crédito hipotecario. También lo muestra al consultar
+una cita ya confirmada, incluso al recuperar el estado vencido. Conserva las
+indicaciones de preparación existentes sobre PDF completo, canal autorizado y
+titulares; el documento no se exige para consultar horarios ni confirmar la
+reserva y no se solicita enviarlo por este chat.
 
 V1.0.38 alterna nuevas reservas entre las asesoras habilitadas usando la última
 asignación persistida, aunque las citas sean para días distintos. Consulta ambos
@@ -129,7 +136,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.38"` y
+Después del push, `/health` debe indicar `version: "1.0.39"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 
