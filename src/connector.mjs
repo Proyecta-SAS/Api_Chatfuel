@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS } from './calenda
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.35';
+export const RELEASE_VERSION = '1.0.36';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -270,13 +270,30 @@ function periodFrom(value) {
 function selectedDay(value, days, now) {
   const index = selection(value, days.length);
   if (index !== null) return days[index];
-  const text = normalize(value).replace(/[.!]/g, '').replace(/^(?:para|prefiero|quiero|me gustaria)\s+/, '').replace(/^el\s+/, '').replace(/\s+(?:en|por) la (?:manana|tarde)$/, '').trim();
+  const text = normalize(value).replace(/[.,!]/g, '').replace(/^(?:para|prefiero|quiero|me gustaria)\s+/, '').replace(/^el\s+/, '').replace(/\s+(?:en|por) la (?:manana|tarde)$/, '').replace(/\s+/g, ' ').trim();
   const relative = { hoy: 0, manana: 1, 'pasado manana': 2 };
   if (Object.hasOwn(relative, text)) {
     const date = addDays(dateAt(now), relative[text]);
     return days.includes(date) ? date : null;
   }
-  const matches = days.filter(date => [normalize(dayLabel(date)), normalize(new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long' }).format(new Date(`${date}T12:00:00Z`))), date].includes(text));
+  const matches = days.filter(date => {
+    const [year, month, day] = date.split('-').map(Number);
+    const weekday = normalize(new Intl.DateTimeFormat('es-CO', {timeZone:'America/Bogota',weekday:'long'}).format(new Date(`${date}T12:00:00Z`)));
+    const monthName = normalize(new Intl.DateTimeFormat('es-CO', {timeZone:'America/Bogota',month:'long'}).format(new Date(`${date}T12:00:00Z`)));
+    const aliases = [date, weekday, String(day)];
+    for (const separator of ['/', '-']) {
+      for (const d of [String(day), String(day).padStart(2,'0')]) {
+        for (const m of [String(month), String(month).padStart(2,'0')]) aliases.push(`${d}${separator}${m}`, `${d}${separator}${m}${separator}${year}`);
+      }
+    }
+    for (const prefix of ['', `${weekday} `]) {
+      for (const de of ['', 'de ']) {
+        const short = `${prefix}${day} ${de}${monthName}`;
+        aliases.push(short, `${short} ${year}`, `${short} de ${year}`);
+      }
+    }
+    return aliases.includes(text);
+  });
   return matches.length === 1 ? matches[0] : null;
 }
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -535,7 +552,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           }
           // A bank/product rejection can finish before any booking intent.
           // Persist and synchronize it without starting a flow or sending a message.
-          if (evaluateRchEligibility(fields).status === 'NO_APLICA') {
+          if (evaluateRchEligibility(fields).status === 'NO_APLICA' || fields.rch_estado_elegibilidad === 'NO_APLICA') {
             try {
               const eligibility=evaluateRchEligibility(fields);
               const computed={rch_estado_elegibilidad:eligibility.status,rch_motivo_elegibilidad:eligibility.reason,
@@ -564,10 +581,13 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           }
           if (node.assignee?.__typename === 'FuelyAIAssignee') {
             const state = decode(fields.bitrix_agenda_estado, node.id);
+            const cancelled = (state || decode(fields.bitrix_agenda_estado,node.id,{allowExpired:true}))?.step === 'cancelled';
+            const resumesCancellation = cancelled && (confirmBooking(fields['last user freeform input'])
+              || explicitBooking(fields['last user freeform input']) || selection(fields['last user freeform input'],5)!==null);
             const resumeEligibleBooking = state?.step === 'eligibility_pending'
               && evaluateRchEligibility(fields).status === 'APLICA';
             const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending','past_appointment'].includes(state.step);
-            if ((!resumeEligibleBooking && !yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
+            if ((!resumesCancellation && !resumeEligibleBooking && !yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
               || active || yes(fields.bitrix_reserva_pendiente) || !env.CHATFUEL_BOOKING_FLOW_ID) continue;
             const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
             if (current.bot.conversation.status === 'open') continue;
@@ -595,7 +615,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               && acceptedBookingHistory(messages.slice(incomingIndex+1));
             // A bare yes needs the immediately preceding call offer, even if an
             // AI-extracted attribute incorrectly classifies another answer as consent.
-            if (!resumeEligibleBooking && !repeatedAcceptance && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
+            const cancelledRequest = cancelled && (confirmBooking(incoming.text)
+              || explicitBooking(incoming.text) || selection(incoming.text,5)!==null);
+            if (!cancelledRequest && !resumeEligibleBooking && !repeatedAcceptance && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
             const intentHash = createHash('sha256').update(`${node.id}|${incoming.id}`).digest('hex');
             if (fields.crm_30x_booking_intent_hash === intentHash
               || routedBookingIntents.get(node.id) === intentHash) continue;
@@ -708,7 +730,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       // Profile answers and morning/afternoon preferences can resume; an expired
       // time selection never authorizes a reservation without fresh availability.
-      if (expired && ['name','city','active','period','past_appointment'].includes(expired.step)) state = expired;
+      if (expired && ['name','city','active','period','past_appointment','cancelled'].includes(expired.step)) state = expired;
       if(!state && expired?.step==='confirmed'
         && /^\d{1,20}$/.test(String(expired.bitrixEventId||''))
         && Number.isFinite(previousStart) && Number.isFinite(previousEnd)
@@ -775,8 +797,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         await setAttributes(contactId, { obligacion_vivienda_activa: 'no' });
         return profileOrOptions(contactId, phone, { ...fields, obligacion_vivienda_activa: 'no' });
       }
-      if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { step: 'cancelled', clientCode: state.clientCode },
+      if (state.step !== 'booking' && declineBooking(answer)) return reply(contactId, { ...state, step: 'cancelled', slot:undefined, slots:undefined },
         'Dejamos la cita pendiente. No reservé ningún horario; puedes pedirme que retomemos el agendamiento cuando lo prefieras.', { done: true });
+      if (state.step === 'cancelled') {
+        if (confirmBooking(answer) || explicitBooking(answer) || selection(answer, 5) !== null) {
+          // Cancellation discards the old slot. Browsing again never reserves it.
+          return profileOrOptions(contactId, phone, fields);
+        }
+        return reply(contactId, state, 'La cita sigue pendiente, sin ningún horario reservado. Para retomarla, escribe «quiero ver horarios».', {done:true});
+      }
       if(state.step==='past_appointment'){
         if(confirmBooking(answer)||explicitBooking(answer))return profileOrOptions(contactId,phone,fields);
         return reply(contactId,state,recordedAppointmentMessage(state));
@@ -795,7 +824,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (state.step === 'name' || state.step === 'city') {
         const valid = state.step === 'name'
           ? /^[\p{L}][\p{L}\p{M}' .-]{2,119}$/u.test(answer) && answer.split(/\s+/).length >= 2
-          : /^[\p{L}\p{N}][\p{L}\p{M}\p{N}' ,.-]{1,99}$/u.test(answer);
+          : /^[\p{L}\p{N}][\p{L}\p{M}\p{N}' (),.-]{1,99}$/u.test(answer);
         if (!valid) return reply(contactId, state, state.step === 'name' ? 'Por favor, escribe tu nombre y apellido para agendar.' : 'Por favor, escribe el nombre de tu ciudad o municipio.');
         const name = state.step === 'name' ? 'nombre_completo' : 'ciudad_municipio';
         await setAttributes(contactId, { [name]: answer });

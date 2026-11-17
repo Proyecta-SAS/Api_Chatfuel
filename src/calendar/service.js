@@ -116,7 +116,8 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     const attempts = (previous?.fingerprint === fingerprint ? Number(previous.attempts || 0) : 0) + 1;
     let result;
     try {
-      const registered = evaluateRchEligibility(profile.data?.answers).status === 'NO_APLICA'
+      const registered = (evaluateRchEligibility(profile.data?.answers).status === 'NO_APLICA'
+        || profile.data?.rejectionSync?.changedByAutomation === true)
         ? await database.findClienteByPhone(profile.phone) : null;
       result = await synchronizeRejection({ profile, registered, store, bitrix });
     } catch (error) {

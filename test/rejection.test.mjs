@@ -54,3 +54,19 @@ test('a failed stage write can be retried without any booking or message operati
   const f=fixture();f.fail=true;await assert.rejects(f.run(),/Synthetic outage/);
   assert.equal(f.deal.STAGE_ID,'C370:NEW');f.fail=false;assert.equal((await f.run()).status,'completed');
 });
+
+const corrected={rch_banco:'AV Villas',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',rch_plazo_inicial:'15 años',rch_tiempo_pagando:'20 meses',obligacion_vivienda_activa:'si'};
+test('a corrected eligible profile restores only its own automatic rejection',async()=>{
+  const f=fixture();f.profile.data.rejectionSync=await f.run();
+  f.profile.data.answers=corrected;
+  assert.equal((await f.run()).status,'restored');assert.equal(f.deal.STAGE_ID,'C370:NEW');
+  assert.equal(f.writes.length,2);
+});
+test('a profile correction preserves manual rejections, changed stages and appointments',async()=>{
+  for(const patch of [{},{STAGE_ID:'C370:EXECUTING'},{UF_CRM_1726241234:'2026-11-20T10:00:00-05:00'}]){
+    const f=fixture({STAGE_ID:REJECTION_STAGE,...patch});f.profile.data.answers=corrected;
+    f.profile.data.rejectionSync={status:'completed',dealId:'777',stageId:REJECTION_STAGE,
+      changedByAutomation:Boolean(Object.keys(patch).length)};
+    assert.equal((await f.run()).status,'skipped');assert.equal(f.writes.length,0);
+  }
+});

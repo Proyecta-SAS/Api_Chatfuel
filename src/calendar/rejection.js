@@ -10,7 +10,10 @@ const fail = code => { throw Object.assign(new Error(code), { code }); };
 /** Only the deterministic eligibility result can request this transition. */
 export async function synchronizeRejection({ profile, registered, store, bitrix }) {
   const eligibility = evaluateRchEligibility(profile.data?.answers);
-  if (eligibility.status !== 'NO_APLICA') return { status:'skipped', reason:'NOT_DISQUALIFIED' };
+  const previous = profile.data?.rejectionSync;
+  const correction = eligibility.status === 'APLICA' && previous?.status === 'completed'
+    && previous.changedByAutomation === true && previous.stageId === REJECTION_STAGE;
+  if (eligibility.status !== 'NO_APLICA' && !correction) return { status:'skipped', reason:'NOT_DISQUALIFIED' };
   if (!registered) return { status:'pending', reason:'DEAL_NOT_LINKED' };
   const dealId = String(registered.id_negociacion);
   if (!/^[1-9]\d{0,15}$/.test(dealId)) fail('INVALID_REJECTION_DEAL');
@@ -25,10 +28,17 @@ export async function synchronizeRejection({ profile, registered, store, bitrix 
     const phone = String(deal[PHONE_FIELD] ?? '').replace(/\D/g, '');
     if (!phone || !phoneVariants(profile.phone).includes(phone)) return { status:'skipped', reason:'PHONE_NOT_VERIFIED', dealId };
     if (deal.CLOSED === 'Y' || deal[APPOINTMENT_FIELD]) return { status:'skipped', reason:'DEAL_HAS_APPOINTMENT_OR_CLOSED', dealId };
-    if (deal.STAGE_ID === REJECTION_STAGE) return { status:'completed', dealId, stageId:REJECTION_STAGE, reason:eligibility.reason };
+    if (correction) {
+      if (previous.dealId !== dealId || deal.STAGE_ID !== REJECTION_STAGE) return {status:'skipped',reason:'DEAL_STAGE_CHANGED',dealId};
+      if (await bitrix.call('crm.deal.update',{id:dealId,fields:{STAGE_ID:REJECTION_SOURCE_STAGE}})!==true
+        || (await read()).STAGE_ID!==REJECTION_SOURCE_STAGE) fail('REJECTION_CORRECTION_NOT_CONFIRMED');
+      return {status:'restored',dealId,stageId:REJECTION_SOURCE_STAGE,reason:'CUSTOMER_CORRECTED_PROFILE'};
+    }
+    if (deal.STAGE_ID === REJECTION_STAGE) return { status:'completed', dealId, stageId:REJECTION_STAGE, reason:eligibility.reason,
+      changedByAutomation:previous?.dealId===dealId && previous.changedByAutomation===true };
     if (deal.STAGE_ID !== REJECTION_SOURCE_STAGE) return { status:'skipped', reason:'DEAL_STAGE_CHANGED', dealId };
     if (await bitrix.call('crm.deal.update', { id:dealId, fields:{STAGE_ID:REJECTION_STAGE} }) !== true) fail('REJECTION_NOT_CONFIRMED');
     if ((await read()).STAGE_ID !== REJECTION_STAGE) fail('REJECTION_NOT_CONFIRMED');
-    return { status:'completed', dealId, stageId:REJECTION_STAGE, reason:eligibility.reason };
+    return { status:'completed', dealId, stageId:REJECTION_STAGE, reason:eligibility.reason,changedByAutomation:true };
   });
 }

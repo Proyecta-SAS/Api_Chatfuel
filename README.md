@@ -1,4 +1,12 @@
-# Api_Chatfuel — V1.0.35
+# Api_Chatfuel — V1.0.36
+
+V1.0.36 acepta fechas escritas con o sin «de», comas y formato día/mes/año,
+siempre dentro de los días ofrecidos. Permite volver a consultar la agenda tras
+cancelar, sin reutilizar una selección ni crear reservas automáticamente.
+Recupera correcciones explícitas del plazo original y permite restaurar un
+descarte cuando hay constancia de que lo hizo esta automatización, el perfil ya
+es elegible y la negociación sigue intacta, sin citas ni cambios manuales.
+Rechaza teléfonos colombianos incompletos antes de registrar o reservar.
 
 Servicio propio de Chatfuel con **MySQL y conexión directa a Bitrix24**.
 El registro, perfiles, disponibilidad, reservas y cambios de etapa se resuelven
@@ -106,7 +114,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.35"` y
+Después del push, `/health` debe indicar `version: "1.0.36"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

@@ -64,6 +64,8 @@ export function reconcileQuestionnaireTimes(fields,messages=[]){
     }
     if(message.__typename!=='WhatsAppInTextMessage')continue;
     const text=message.text||'',normalized=normalize(text);
+    const originalCorrection=normalized.match(/^lo (?:saque|tome|adquiri) a (\d+(?:[.,]\d+)? anos?)\b(?:\s+y\s+(?:llevo|he pagado)\b.*)?[.!]*$/);
+    if(originalCorrection && !/[?¿]/.test(text)) updates.rch_plazo_inicial=originalCorrection[1];
     if(/\b(?:quiero empezar de cero|empecemos de cero|reiniciar el perfilamiento)\b/.test(normalized)
       && !/\bno quiero\b/.test(normalized)){
       for(const field of Object.keys(updates))delete updates[field];question=null;continue;

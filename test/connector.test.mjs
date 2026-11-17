@@ -124,6 +124,36 @@ async function prepareOptions(f) {
   return f.request('step', '1');
 }
 
+test('accepts customer-written dates only when they match an offered day', async () => {
+  for (const answer of ['miércoles 4 de noviembre','4 Noviembre','miércoles, 4 de noviembre de 2026','04/11/2026','4-11-2026']) {
+    const f=fixture();await f.request('start');await f.request('step','en la mañana');
+    const result=await f.request('step',answer);
+    assert.match(result.message,/horarios libres/);assert.equal(f.bookings().length,0);
+  }
+  for (const answer of ['jueves 4 de noviembre','04/12/2026','04/11/2025','¿el 4 de noviembre?']) {
+    const f=fixture();await f.request('start');await f.request('step','en la mañana');
+    assert.match((await f.request('step',answer)).message,/Puedes elegir/);assert.equal(f.bookings().length,0);
+  }
+});
+
+test('resuming a cancelled or expired choice refreshes browsing without booking', async () => {
+  for(const expired of [false,true]) {
+    const f=fixture();await prepareOptions(f);await f.request('step','1');
+    await f.request('step','CANCELAR');
+    if(expired)f.advance(31*60_000);
+    const resumed=await f.request('step','1');
+    assert.match(resumed.message,/mañana o en la tarde/);assert.equal(f.bookings().length,0);
+    assert.equal(JSON.parse(Buffer.from(f.fields.bitrix_agenda_estado.split('.')[0],'base64url')).step,'period');
+  }
+});
+
+test('accepts a municipality followed by its department in parentheses', async () => {
+  const f=fixture({initial:{nombre_completo:'Persona de Prueba',ciudad_municipio:''}});
+  await f.request('start');
+  const result=await f.request('step','Manizales (Caldas)');
+  assert.equal(f.fields.ciudad_municipio,'Manizales (Caldas)');assert.match(result.message,/mañana o en la tarde/);
+});
+
 test('una aceptación repetida tras el acuse retoma la oferta aceptada una sola vez',async()=>{
   for(const latestText of ['dale','dalee','de acuerdo']){
     const f=fixture({latestText,initial:{'last user freeform input':latestText},

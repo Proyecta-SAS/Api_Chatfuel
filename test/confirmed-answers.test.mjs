@@ -7,6 +7,15 @@ const original=()=>out('¿A cuántos años tomaste originalmente tu crédito? Po
 const paid=()=>out('Gracias por aclararlo 😊 Entonces tomo como plazo original 30 años. Ahora sí, ¿cuánto tiempo llevas pagando tu crédito?');
 const proposal=()=>out('¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?');
 
+test('una corrección compuesta reemplaza el plazo antiguo sin inventar la unidad de las cuotas',()=>{
+  assert.deepEqual(reconcileQuestionnaireTimes({rch_plazo_inicial:'5 años',rch_tiempo_pagando:'20 meses'},[
+    incoming('Lo saqué a 15 años y llevo 20’xuotas'),paid(),
+  ]),{rch_plazo_inicial:'15 anos'});
+  for(const text of ['¿Lo saqué a 15 años?','No lo saqué a 15 años','Mi mamá lo tomó a 15 años']) {
+    assert.deepEqual(reconcileQuestionnaireTimes({},[incoming(text)]),{});
+  }
+});
+
 test('la propuesta nueva conserva el sí y el no en capacidad, sin guardarlos como banco',()=>{
   for(const [text,value] of [['Sí','si'],['Si podría','si'],['No','no'],['No puedo','no']]){
     assert.deepEqual(reconcileQuestionnaireTimes({},[incoming(text),proposal()]),{rch_puede_aumentar_cuota:value});
