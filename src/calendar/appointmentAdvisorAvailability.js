@@ -4,7 +4,7 @@ export function calculateAdvisorDateSlots(input) {
     const byTime = new Map();
     const calendars = [
         ...input.calendars
-    ].sort((left, right)=>(left.confirmedByDate?.[input.date] ?? 0) - (right.confirmedByDate?.[input.date] ?? 0) || (left.lastAssignedAt ? Date.parse(left.lastAssignedAt) : 0) - (right.lastAssignedAt ? Date.parse(right.lastAssignedAt) : 0) || left.advisorId.localeCompare(right.advisorId));
+    ].sort((left, right)=>(left.lastAssignedAt ? Date.parse(left.lastAssignedAt) : 0) - (right.lastAssignedAt ? Date.parse(right.lastAssignedAt) : 0) || (left.confirmedByDate?.[input.date] ?? 0) - (right.confirmedByDate?.[input.date] ?? 0) || left.advisorId.localeCompare(right.advisorId));
     for (const calendar of calendars){
         if (!calendar.advisorId || !calendar.bitrixUserId || calendar.events === null) continue;
         const busy = [

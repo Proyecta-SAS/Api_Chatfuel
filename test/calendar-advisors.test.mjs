@@ -146,3 +146,12 @@ test("con tres asesores solo compiten por carga los que tienen el intervalo libr
   ] });
   assert.ok(slots.length > 0 && slots.every((slot) => slot.advisorId === "c"));
 });
+
+
+test("el turno entre fechas prevalece sobre la menor carga diaria", () => {
+  const slots = calculateAdvisorDateSlots({ ...base, calendars: [
+    { advisorId: "first", bitrixUserId: "10", events: [], confirmedByDate: {}, lastAssignedAt: "2026-10-30T14:00:00Z" },
+    { advisorId: "second", bitrixUserId: "20", events: [], confirmedByDate: { [base.date]: 4 }, lastAssignedAt: "2026-10-30T13:00:00Z" }
+  ] });
+  assert.ok(slots.length > 0 && slots.every(slot => slot.advisorId === "second"));
+});

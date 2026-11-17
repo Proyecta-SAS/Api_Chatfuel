@@ -44,7 +44,14 @@ function memoryStore() {
       && (!row.response.feedbackSync.nextAttemptAt||row.response.feedbackSync.nextAttemptAt<=at)).map(row=>row.id); },
     async commentStatus(hash) { return comments.get(hash)||null; },
     async reservations() { return [...bookings.values()].filter(b=>['pending','confirmed'].includes(b.status)); },
-    async insertPending(row) { bookings.set(row.id,structuredClone({...row,createdAt:new Date(NOW).toISOString()})); },
+    async advisorAssignments() {
+      const assignments = {};
+      for (const row of bookings.values()) if (['pending','confirmed'].includes(row.status)) {
+        if (!assignments[row.advisorId] || row.createdAt > assignments[row.advisorId]) assignments[row.advisorId] = row.createdAt;
+      }
+      return assignments;
+    },
+    async insertPending(row) { bookings.set(row.id,structuredClone({...row,createdAt:new Date(NOW+bookings.size).toISOString()})); },
     async confirm(id,eventId,response) { Object.assign(bookings.get(id),{status:'confirmed',bitrixEventId:eventId,response:structuredClone(response)}); },
     async saveSync(id,response) { bookings.get(id).response=structuredClone(response); },
     async pendingCrmAppointments(at) { return [...bookings.values()].filter(row=>row.status==='confirmed'
@@ -608,6 +615,26 @@ test('los treinta minutos completos deben estar libres y caber antes del cierre'
   await assert.rejects(unavailable.book(code,request,'partial-block'),/SLOT_UNAVAILABLE/);
   await assert.rejects(f.service.book(code,{...request,startAt:'2026-11-03T16:40:00-05:00'},'after-close'),/INVALID_START/);
   assert.equal(f.events.length,0);
+});
+
+test('alterna entre fechas, conserva turno al consultar o reintentar y serializa reservas simultaneas',async()=>{
+  const pool=[...advisors,{id:'advisor-b',name:'Segunda asesora',bitrixUserId:'20'}];
+  const f=fixture(memoryStore(),pool),code=await f.profile();
+  const inputs=['2026-11-03','2026-11-04','2026-11-05','2026-11-06'].map(date=>({...request,startAt:date+'T10:00:00-05:00'}));
+  await f.service.book(code,inputs[0],'rotation-0');
+  const query={dateFrom:'2026-11-04',dateTo:'2026-11-04',fromTime:'10:00',toTime:'11:00'};
+  for(let n=0;n<2;n++)assert.ok((await f.service.availability(code,query)).data.slots.every(s=>s.advisorId==='advisor-b'));
+  assert.equal((await f.restart().book(code,inputs[0],'rotation-0')).data.duplicate,true);
+  await f.restart().book(code,inputs[1],'rotation-1');
+  await Promise.all(inputs.slice(2).map((input,index)=>f.restart().book(code,input,'rotation-'+(index+2))));
+  assert.deepEqual(f.events.map(e=>e.OWNER_ID),['10','20','10','20']);
+});
+
+test('una asesora ocupada deja el intervalo a la otra aunque tenga el turno',async()=>{
+  const pool=[...advisors,{id:'advisor-b',name:'Segunda asesora',bitrixUserId:'20'}];
+  const f=fixture(memoryStore(),pool),code=await f.profile();f.blockedOwner='10';
+  await f.service.book(code,request,'busy-advisor');
+  assert.equal(f.events[0].OWNER_ID,'20');
 });
 
 test('recupera una cita antigua de diez minutos sin ampliarla ni crear otra',async()=>{

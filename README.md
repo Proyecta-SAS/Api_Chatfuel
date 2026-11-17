@@ -1,4 +1,11 @@
-# Api_Chatfuel — V1.0.37
+# Api_Chatfuel — V1.0.38
+
+V1.0.38 alterna nuevas reservas entre las asesoras habilitadas usando la última
+asignación persistida, aunque las citas sean para días distintos. Consulta ambos
+calendarios y usa el otro cuando el turno no tiene libre el intervalo completo.
+Consultar horarios o repetir una confirmación no consume turno. Un bloqueo global
+serializa las reservas concurrentes entre fechas; cada servicio conserva su propia
+rotación y persistencia. Se mantienen festivos, idempotencia y reservas previas.
 
 V1.0.37 excluye festivos colombianos al ofrecer días y horarios y al reservar,
 incluso si Bitrix no tiene cargada una lista de festivos. Respeta además los
@@ -122,7 +129,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.37"` y
+Después del push, `/health` debe indicar `version: "1.0.38"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

@@ -180,7 +180,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     ]);
     const additionalHolidays=bitrixHolidays(settings);
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) fail('INVALID_AVAILABILITY');
-    const rows = await db.reservations(from, to);
+    const [rows, assignments] = await Promise.all([db.reservations(from, to), db.advisorAssignments()]);
     const list = advisors.map(a => {
       const reservations = rows.filter(r => r.bitrixUserId === a.bitrixUserId);
       const confirmed = reservations.filter(r => r.status === 'confirmed');
@@ -189,7 +189,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
       return { advisorId: a.id, bitrixUserId: a.bitrixUserId, additionalHolidays,
         events: Array.isArray(payload[a.bitrixUserId]) ? payload[a.bitrixUserId] : null,
         reservations, confirmedByDate: counts,
-        lastAssignedAt: confirmed.map(r => r.createdAt).sort().at(-1) || null };
+        lastAssignedAt: assignments[a.id] || null };
     });
     if (list.every(c => c.events === null)) fail('INVALID_AVAILABILITY');
     return list;
@@ -330,7 +330,9 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
         originalAppointmentDate = original[APPOINTMENT_DATE_FIELD] || null;
         if (!validId(originalResponsible)) fail('INVALID_DEAL_RESPONSIBLE');
       }
-      return db.withLock('day:' + parsed.date, async locked => {
+      // One durable turn across all appointment dates; merely reading slots
+      // never changes it. Idempotent retries return above without taking a turn.
+      return db.withLock('advisor-rotation', async locked => {
         const busy = await calendars(parsed.date, parsed.date, locked);
         const fmt = mins => `${String(Math.floor(mins / 60)).padStart(2,'0')}:${String(mins % 60).padStart(2,'0')}`;
         const available = calculateAdvisorDateSlots({ date: parsed.date, calendars: busy, durationMinutes: duration,

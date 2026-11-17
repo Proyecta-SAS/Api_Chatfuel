@@ -93,6 +93,11 @@ export function createSchedulingStore(pool, executor = pool) {
         [new Date(`${to}T23:59:59.999-05:00`), new Date(`${from}T00:00:00-05:00`)]);
       return rows.map(appointment);
     },
+    async advisorAssignments() {
+      const [rows] = await executor.execute(`SELECT asesor_id,MAX(creado_en) AS ultima_asignacion
+        FROM chatfuel_citas WHERE estado IN ('pending','confirmed') GROUP BY asesor_id`);
+      return Object.fromEntries(rows.map(row => [row.asesor_id, iso(row.ultima_asignacion)]));
+    },
     async insertPending(row) {
       await executor.execute(`INSERT INTO chatfuel_citas(id,cliente_codigo,asesor_id,bitrix_usuario_id,clave_idempotencia,inicio,fin,estado,solicitud,respuesta)
         VALUES(?,?,?,?,?,?,?,'pending',?,?)`, [row.id, row.clientCode, row.advisorId, row.bitrixUserId, row.key,
