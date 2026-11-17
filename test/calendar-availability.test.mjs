@@ -51,7 +51,7 @@ test("incluye solo dias laborales dentro del horizonte", () => {
     from: "2026-10-30",
     daysAhead: 4,
     weekdays: ["lunes", "martes", "miercoles", "jueves", "viernes"]
-  }), ["2026-10-30", "2026-11-02", "2026-11-03"]);
+  }), ["2026-10-30", "2026-11-03"]);
 });
 
 test("solo confirma la reserva cuando Bitrix devuelve un id real", () => {

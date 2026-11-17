@@ -9,6 +9,7 @@ import { DEAL_SUMMARY_FIELD, timelineSummary, bitrixSummaryText, withAppointment
 import { APPOINTMENT_DURATION_MINUTES } from './policy.js';
 import { evaluateRchEligibility } from './rchEligibility.js';
 import { synchronizeRejection } from './rejection.js';
+import {bitrixHolidays,isHoliday} from './holidays.js';
 
 export const APPOINTMENT_STAGE = 'C370:EXECUTING';
 export const APPOINTMENT_DATE_FIELD = 'UF_CRM_1726241234';
@@ -173,7 +174,11 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
     });
   }
   async function calendars(from, to, db = store) {
-    const payload = await calendar.call('calendar.accessibility.get', { from, to, users: advisors.map(a => Number(a.bitrixUserId)) });
+    const [payload,settings] = await Promise.all([
+      calendar.call('calendar.accessibility.get', { from, to, users: advisors.map(a => Number(a.bitrixUserId)) }),
+      calendar.call('calendar.settings.get'),
+    ]);
+    const additionalHolidays=bitrixHolidays(settings);
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) fail('INVALID_AVAILABILITY');
     const rows = await db.reservations(from, to);
     const list = advisors.map(a => {
@@ -181,7 +186,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
       const confirmed = reservations.filter(r => r.status === 'confirmed');
       const counts = {};
       for (const row of confirmed) { const date = dateOf(row.startAt); counts[date] = (counts[date] || 0) + 1; }
-      return { advisorId: a.id, bitrixUserId: a.bitrixUserId,
+      return { advisorId: a.id, bitrixUserId: a.bitrixUserId, additionalHolidays,
         events: Array.isArray(payload[a.bitrixUserId]) ? payload[a.bitrixUserId] : null,
         reservations, confirmedByDate: counts,
         lastAssignedAt: confirmed.map(r => r.createdAt).sort().at(-1) || null };
@@ -303,6 +308,7 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
       // reservations must use the current duration.
       if (duration !== APPOINTMENT_DURATION_MINUTES) fail('INVALID_START');
       if (body.resumeOnly) fail('LEGACY_BOOKING_REVIEW_REQUIRED');
+      if(isHoliday(parsed.date))fail('SLOT_UNAVAILABLE');
       if (start <= now() || !sqlDate(parsed.date) || ['sabado','domingo'].includes(weekdayForDate(parsed.date))
         || parsed.minutes < 510 || parsed.minutes + duration > 1020) fail('INVALID_START');
       const profile = await db.getProfile(code);

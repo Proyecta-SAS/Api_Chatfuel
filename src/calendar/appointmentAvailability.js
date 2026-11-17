@@ -1,4 +1,5 @@
 // Adaptado del código del proyecto de referencia del usuario; módulo autónomo.
+import {isHoliday} from './holidays.js';
 const COLOMBIA_TIME_ZONE = "America/Bogota";
 export const SPANISH_WEEKDAYS = [
     "domingo",
@@ -103,6 +104,7 @@ function toSlot(date, start, end) {
     };
 }
 export function calculateDateSlots(input) {
+    if (isHoliday(input.date,input.additionalHolidays || [])) return [];
     const now = input.now || new Date();
     const start = parseTime(input.fromTime);
     const end = parseTime(input.toTime);
@@ -141,7 +143,7 @@ export function candidateDates(input) {
     const dates = [];
     for(let offset = 0; offset <= input.daysAhead; offset += 1){
         const date = addCalendarDays(input.from, offset);
-        if (allowed.has(weekdayForDate(date))) dates.push(date);
+        if (allowed.has(weekdayForDate(date)) && !isHoliday(date,input.additionalHolidays || [])) dates.push(date);
     }
     return dates;
 }

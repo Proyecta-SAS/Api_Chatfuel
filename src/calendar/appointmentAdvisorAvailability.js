@@ -19,6 +19,7 @@ export function calculateAdvisorDateSlots(input) {
         if (unreadable) continue;
         for (const slot of calculateDateSlots({
             ...input,
+            additionalHolidays: calendar.additionalHolidays || input.additionalHolidays || [],
             events: busy
         })){
             if (!byTime.has(slot.startAt)) {

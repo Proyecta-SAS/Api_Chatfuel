@@ -1,4 +1,12 @@
-# Api_Chatfuel — V1.0.36
+# Api_Chatfuel — V1.0.37
+
+V1.0.37 excluye festivos colombianos al ofrecer días y horarios y al reservar,
+incluso si Bitrix no tiene cargada una lista de festivos. Respeta además los
+cierres adicionales de `calendar.settings.get`; un fallo de lectura impide
+ofrecer o reservar nuevos horarios. Las reservas anteriores conservan su
+confirmación e idempotencia para poder revisarlas sin duplicarlas.
+El calendario nacional aplica la Ley 51 de 1983 y el nuevo festivo de la Ley
+2578 de 2026. Las pruebas cubren el 16 de noviembre de 2026 y el 15 de noviembre de 2027.
 
 V1.0.36 acepta fechas escritas con o sin «de», comas y formato día/mes/año,
 siempre dentro de los días ofrecidos. Permite volver a consultar la agenda tras
@@ -114,7 +122,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.36"` y
+Después del push, `/health` debe indicar `version: "1.0.37"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

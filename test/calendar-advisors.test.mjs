@@ -3,11 +3,11 @@ import { test } from "node:test";
 import { calculateAdvisorDateSlots, nextAdvisorOptions } from "../src/calendar/appointmentAdvisorAvailability.js";
 
 const base = {
-  date: "2026-11-02", durationMinutes: 10, fromTime: "09:00", toTime: "10:00",
+  date: "2026-11-03", durationMinutes: 10, fromTime: "09:00", toTime: "10:00",
   now: new Date("2026-10-30T12:00:00-05:00")
 };
 const busy = (from, to) => [{
-  DATE_FROM: `02/11/2026 ${from}:00`, DATE_TO: `02/11/2026 ${to}:00`, ACCESSIBILITY: "busy"
+  DATE_FROM: `03/11/2026 ${from}:00`, DATE_TO: `03/11/2026 ${to}:00`, ACCESSIBILITY: "busy"
 }];
 
 test("un compañero ocupado no impide usar el horario libre del otro", () => {
@@ -53,7 +53,7 @@ test("un horario compartido se ofrece una sola vez y conserva el asesor", () => 
 test("respeta también las reservas locales aún no reflejadas en el calendario", () => {
   const slots = calculateAdvisorDateSlots({ ...base, calendars: [{
     advisorId: "first", bitrixUserId: "10", events: [], reservations: [{
-      startAt: "2026-11-02T09:00:00-05:00", endAt: "2026-11-02T09:30:00-05:00"
+      startAt: "2026-11-03T09:00:00-05:00", endAt: "2026-11-03T09:30:00-05:00"
     }]
   }] });
   assert.equal(slots[0].start, "09:30");
@@ -62,7 +62,7 @@ test("respeta también las reservas locales aún no reflejadas en el calendario"
 test("convierte reservas UTC a Bogotá antes de excluir los horarios", () => {
   const slots = calculateAdvisorDateSlots({ ...base, calendars: [{
     advisorId: "first", bitrixUserId: "10", events: [], reservations: [{
-      startAt: "2026-11-02T14:00:00Z", endAt: "2026-11-02T14:30:00Z"
+      startAt: "2026-11-03T14:00:00Z", endAt: "2026-11-03T14:30:00Z"
     }]
   }] });
   assert.equal(slots[0].start, "09:30");
@@ -71,7 +71,7 @@ test("convierte reservas UTC a Bogotá antes de excluir los horarios", () => {
 test("un evento que termina a medianoche no bloquea el día siguiente", () => {
   const slots = calculateAdvisorDateSlots({ ...base, calendars: [{
     advisorId: "first", bitrixUserId: "10", events: [{
-      DATE_FROM: "01/11/2026 00:00:00", DATE_TO: "02/11/2026 00:00:00", DT_SKIP_TIME: "Y"
+      DATE_FROM: "02/11/2026 00:00:00", DATE_TO: "03/11/2026 00:00:00", DT_SKIP_TIME: "Y"
     }]
   }] });
   assert.equal(slots.length, 6);

@@ -68,6 +68,7 @@ function fixture(store = memoryStore(), pool = advisors) {
   const database={scheduling:store,findClienteByPhone:async()=>registered};
   const bitrix={call:async(method,params)=>{
     calls.push({method,params});
+    if(method==='calendar.settings.get') return {year_holidays:''};
     if(method==='calendar.accessibility.get') return omitCalendar ? {} : Object.fromEntries(pool.map(a=>[a.bitrixUserId,
       a.bitrixUserId===blockedOwner ? [{DATE_FROM:'2026-11-03T09:00:00-05:00',DATE_TO:'2026-11-03T09:10:00-05:00'}] : []]));
     if(method==='calendar.event.get') return structuredClone(events);
@@ -443,6 +444,34 @@ async function scenarios(t, create) {
 }
 test('motor independiente con Bitrix simulado',async t=>scenarios(t,async()=>fixture()));
 
+test('el lunes festivo no ofrece horarios ni permite una reserva directa',async()=>{
+ const f=fixture();const code=await f.profile();
+ const availability=await f.service.availability(code,{dateFrom:'2026-11-16',dateTo:'2026-11-16'});
+ assert.deepEqual(availability.data.slots,[]);
+ await assert.rejects(f.service.book(code,{...request,startAt:'2026-11-16T10:00:00-05:00'},'holiday'),/SLOT_UNAVAILABLE/);
+ assert.equal(f.events.length,0);
+});
+test('los cierres adicionales de Bitrix bloquean la consulta y la reserva',async()=>{
+ const f=fixture();const code=await f.profile();
+ const calendar={call:async method=>{
+  if(method==='calendar.settings.get')return {year_holidays:'03.11'};
+  if(method==='calendar.accessibility.get')return {'10':[]};
+  throw Error('Unexpected calendar mutation');
+ }};
+ const service=createSchedulingService({database:f.database,bitrix:{call:()=>{throw Error('Unexpected CRM call');}},calendar,advisors,now:()=>NOW});
+ assert.deepEqual((await service.availability(code,{dateFrom:'2026-11-03',dateTo:'2026-11-03'})).data.slots,[]);
+ await assert.rejects(service.book(code,request,'company-closure'),/SLOT_UNAVAILABLE/);
+ assert.equal(f.events.length,0);
+});
+test('una reserva ya confirmada en festivo se recupera sin recrearla',async()=>{
+ const f=fixture();const code=await f.profile();const original={...request,startAt:'2026-11-16T10:00:00-05:00'};
+ await f.store.insertPending({id:'existing-holiday',clientCode:code,key:'holiday-existing',startAt:original.startAt,
+  endAt:'2026-11-16T10:30:00-05:00',request:original,response:{}});
+ await f.store.confirm('existing-holiday','1000',{});
+ assert.equal((await f.service.book(code,original,'holiday-existing')).data.duplicate,true);
+ assert.equal(f.events.length,0);
+});
+
 test('persiste un descarte pendiente y el worker lo recupera después de una caída de Bitrix',async()=>{
   const f=fixture();f.failStage=true;
   const {clientId,rejectionSync}=await f.service.upsert({phone:'573000000001',answers:{rch_banco:'BBVA'}});
@@ -571,6 +600,7 @@ test('importador MySQL conserva citas y es idempotente', {skip:!process.env.TEST
 test('los treinta minutos completos deben estar libres y caber antes del cierre',async()=>{
   const f=fixture();const code=await f.profile();
   const unavailable=createSchedulingService({database:f.database,advisors,now:()=>NOW,bitrix:{call:async(method)=>{
+    if(method==='calendar.settings.get')return {year_holidays:''};
     if(method==='calendar.accessibility.get')return {'10':[{DATE_FROM:'2026-11-03T09:20:00-05:00',DATE_TO:'2026-11-03T09:30:00-05:00'}]};
     throw Error('No calendar write expected');
   }}});
