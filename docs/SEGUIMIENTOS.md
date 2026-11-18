@@ -1,8 +1,8 @@
 # Seguimientos de DalIA y Chatfuel
 
-Implementación preparada, desactivada por defecto. No se han vinculado todavía
-las plantillas o automatizaciones de producción. Su aprobación y los webhooks
-reales son necesarios antes de activar los envíos.
+Implementación desactivada por defecto. El 18/11 se verificaron las seis
+plantillas aprobadas y sus webhooks y se vincularon los flujos de botones.
+El programador sigue pausado mientras se completa la validación.
 
 ## Programación y persistencia
 
@@ -47,6 +47,14 @@ exige una respuesta de envío Wasapi sin rechazos, y bloquea simulaciones,
 respuestas parciales y errores de negocio aunque el HTTP sea 200. Esto sigue
 siendo aceptación por Wasapi: la entrega al destinatario se verifica por separado.
 
+Desde V1.0.41 se conserva el ID numérico del único mensaje aceptado, validando
+teléfono y remitente de su recibo. Se consulta ese ID en el historial de la línea.
+`sent` queda pendiente; solo `delivered` o `read` confirman entrega. La ausencia
+de un recibo identificable o de confirmación durante 15 minutos requiere revisión.
+Un estado `failed` detiene el seguimiento, conserva el código y no reenvía. Para
+131049 se registra un límite mínimo de 24 horas antes de otro intento manual;
+no se cambia la categoría ni el contenido de la plantilla para evadir el límite.
+
 ## Botones de respuesta rápida
 
 Textos actuales: **Sí, me interesa** y **No, gracias**. También se reconocen los
@@ -84,13 +92,14 @@ El observador revalida también estas condiciones antes del envío.
 
 ## Gestión después de 72 horas
 
-Justo al aceptar el tercer envío, el trabajador ejecuta el cambio a la etapa
+Justo al confirmar la entrega del tercer envío, el trabajador cambia a la etapa
 «SIN RESPUESTA 3 DÍAS», sin agregar otra espera. La comprobación de ausencia de
 respuesta se realiza antes del envío. Los dos IDs de destino se verifican contra
 la configuración existente de asesores. Mueve etapa y responsable juntos, alternando el equipo con un
 contador MySQL transaccional. No sobrescribe una reasignación humana.
 
-Si Bitrix falla, se retoma solo la gestión CRM. No vuelve a enviar el tercer
+Si Meta rechaza el mensaje no se mueve la etapa. Si Bitrix falla después de la
+entrega, se retoma solo la gestión CRM. No vuelve a enviar el tercer
 mensaje. Una escritura ya aplicada se reconoce por etapa y responsable leídos.
 Un clic posterior a la asignación mantiene la gestión humana.
 

@@ -55,3 +55,13 @@ test('el traspaso verifica etapa y responsable sin exigir permisos del directori
   await assert.rejects(gateway.handoff(lead,'C370:TARGET','101'),/CRM_CHANGED/);
   assert.equal(updates.length,1);
 });
+
+test('consulta el recibo exacto y distingue leído, aceptado y error 131049',async()=>{
+  const lead={channel:'Chatfuel',phone:'573001234567'};
+  for(const [status,error,expected] of [['sent',null,'pending'],['read',null,'delivered'],['failed','131049','failed']]){
+    const gateway=createFollowupGateway({config:{apiKey:'test',channels:{Chatfuel:{fromId:'24020'}}},
+      fetchImpl:async()=>Response.json({data:[{id:900,from_id:24020,wa_id:lead.phone,type:'out',message_type:'template',status,error_code:error}],last_page:1})});
+    assert.equal((await gateway.delivery(lead,'900')).status,expected);
+    assert.equal((await gateway.delivery(lead,'901')).status,'pending');
+  }
+});

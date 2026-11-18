@@ -1,5 +1,5 @@
 import { normalizePhone } from './policy.js';
-import { isAtlasflowWebhook, atlasflowRequest, atlasflowAccepted } from './atlasflow.js';
+import { isAtlasflowWebhook, atlasflowRequest, atlasflowAccepted, atlasflowReceipt } from './atlasflow.js';
 
 const CAMPAIGNS=['RCH-03/2026-CAMP-META','RCH-02/2026-CAMP-META','RCH - 04/ SEPT 2026',
   'NOV TESTING- RCH- LEADS QA','NOV TESTING- RCH- LEADS NORM'];
@@ -38,6 +38,19 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
   }
   return {
     inspect,
+    async delivery(lead,messageId){
+      if(!/^[1-9]\d*$/.test(String(messageId||'')))throw new Error('FOLLOWUP_RECEIPT_UNVERIFIED');
+      const source=await history(lead.channel,lead.phone);
+      const matches=source.messages.filter(row=>String(row.id)===String(messageId));
+      if(!matches.length)return {status:'pending'};
+      if(matches.length!==1 || matches[0].type!=='out' || matches[0].message_type!=='template'){
+        throw new Error('FOLLOWUP_RECEIPT_UNVERIFIED');
+      }
+      const row=matches[0];
+      if(row.status==='failed' || row.error_code)return {status:'failed',errorCode:String(row.error_code||'unknown')};
+      if(['delivered','read'].includes(row.status))return {status:'delivered'};
+      return {status:'pending'};
+    },
     async initialContact(lead){
       const source=await history(lead.channel,lead.phone);
       return source.messages.filter(m=>m.type==='out' && m.message_type==='template'
@@ -71,7 +84,7 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
       const result=await response.json();
       if(atlas){
         if(!atlasflowAccepted(result))throw new Error('FOLLOWUP_DISPATCH_UNCERTAIN');
-        return {accepted:true};
+        return {accepted:true,...(atlasflowReceipt(result,context)||{})};
       }
       const accepted=config.acceptField.split('.').reduce((value,key)=>value && typeof value==='object'
         && Object.hasOwn(value,key)?value[key]:undefined,result);

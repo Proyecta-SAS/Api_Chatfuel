@@ -1,3 +1,11 @@
+# V1.0.41 - 2026-11-18
+
+- Conserva el identificador de Wasapi y consulta el recibo del mensaje exacto.
+- Separa aceptación, entrega pendiente, entrega confirmada y rechazo de Meta.
+- Un 131049 queda en revisión y señala un mínimo de 24 horas antes de otro
+  intento, sin programar reenvíos automáticos ni cambios de etapa.
+- Cambia etapa y responsable inmediatamente tras confirmar la entrega de 72h.
+
 # V1.0.40 - 2026-11-18
 
 - Prepara seguimientos de 1, 24 y 72 horas para DalIA y Chatfuel, con persistencia,

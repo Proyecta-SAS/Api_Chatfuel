@@ -48,3 +48,15 @@ export function atlasflowAccepted(result) {
   return Boolean(response && !response.error && Number(response.sent)>0 && Number(response.not_sent)===0
     && !(Array.isArray(response.logs) && response.logs.some(log=>log.success===false || log.error || log.error_message)));
 }
+
+export function atlasflowReceipt(result,context) {
+  const delivery=result?.actions_result?.primary_action?.artifacts?.delivery_result;
+  const response=delivery?.response_payload || (result?.legacy_response||result)?.respuesta;
+  const logs=Array.isArray(response?.logs)?response.logs:[];
+  if(logs.length!==1)return null;
+  const log=logs[0];
+  if(log.success!==true || !/^[1-9]\d*$/.test(String(log.id||''))
+    || String(log.from_id)!==String(context.fromId)
+    || normalizePhone(log.recipient||log.wa_id)!==context.phone)return null;
+  return {messageId:String(log.id)};
+}

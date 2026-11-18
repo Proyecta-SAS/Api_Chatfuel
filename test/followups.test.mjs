@@ -25,11 +25,12 @@ function fixture(channel='Chatfuel') {
       finally{unlock();}
     },
     async nextSetter(ids){return ids[setter++%ids.length];},
-    async pending(now){return [...records.values()].filter(r=>['pending','handoff_pending'].includes(r.status)&&r.nextDueAt<=now)
+    async pending(now){return [...records.values()].filter(r=>['pending','delivery_pending','handoff_pending'].includes(r.status)&&r.nextDueAt<=now)
       .map(r=>({channel:r.lead.channel,phone:r.lead.phone}));},
   };
   const gateway={inspect:async()=>structuredClone(snapshot),discover:async()=>({leads:[],cursor:'0'}),
-    send:async value=>{sent.push(value);return {accepted:true};},
+    send:async value=>{sent.push(value);return {accepted:true,messageId:'900'};},
+    delivery:async()=>({status:'delivered'}),
     handoff:async (...args)=>{handed.push(args);snapshot.stage=config.targetStage;snapshot.responsible=args[2];}};
   const service=createFollowupService({config,store,gateway,now:()=>at});
   const lead={id:'33',phone:'3001234567',channel,name:'Persona de prueba',responsible:'7',initialAt:new Date(START).toISOString()};
@@ -130,9 +131,39 @@ test('un clic tardío conserva una asignación humana posterior',async()=>{
 
 test('al aceptar la plantilla de 72 horas cambia de etapa sin otra espera',async()=>{
   const f=fixture();await f.service.enroll(f.lead);f.setHour(72);await f.service.process(f.key);
-  f.gateway.send=async value=>{f.sent.push(value);f.change({incoming:true});return {accepted:true};};
+  f.gateway.send=async value=>{f.sent.push(value);f.change({incoming:true});return {accepted:true,messageId:'900'};};
   await f.service.process(f.key);
   assert.equal(f.sent.length,1);assert.equal(f.handed.length,1);assert.equal(f.get().status,'completed');
+});
+
+test('un rechazo asíncrono 131049 no cambia etapa ni reenvía la plantilla',async()=>{
+  const f=fixture();await f.service.enroll(f.lead);f.setHour(72);await f.service.process(f.key);
+  f.gateway.delivery=async()=>({status:'pending'});
+  await f.service.process(f.key);
+  assert.equal(f.get().status,'delivery_pending');assert.equal(f.handed.length,0);
+  f.gateway.delivery=async()=>({status:'failed',errorCode:'131049'});
+  await f.service.process(f.key);await f.service.process(f.key);f.setHour(120);await f.service.tick();
+  assert.equal(f.sent.length,1);assert.equal(f.handed.length,0);assert.equal(f.get().status,'review');
+  assert.equal(f.get().steps[72].status,'failed');assert.equal(f.get().steps[72].errorCode,'131049');
+  assert.ok(Date.parse(f.get().steps[72].retryNotBefore)>=START+96*3600000);
+});
+
+test('traslada inmediatamente al confirmar entrega de 72h, sin otra espera ni duplicados',async()=>{
+  const f=fixture();await f.service.enroll(f.lead);f.setHour(72);await f.service.process(f.key);
+  f.gateway.delivery=async()=>({status:'pending'});await f.service.process(f.key);
+  assert.equal(f.sent.length,1);assert.equal(f.handed.length,0);
+  f.gateway.delivery=async()=>({status:'delivered'});await f.service.process(f.key);await f.service.process(f.key);
+  assert.equal(f.sent.length,1);assert.equal(f.handed.length,1);assert.equal(f.get().status,'completed');
+});
+
+test('un identificador ausente o una entrega no confirmada quedan en revisión',async()=>{
+  for(const absent of [true,false]){
+    const f=fixture();await f.service.enroll(f.lead);f.setHour(1);
+    if(absent)f.gateway.send=async v=>{f.sent.push(v);return {accepted:true};};
+    else f.gateway.delivery=async()=>({status:'pending'});
+    await f.service.process(f.key);f.setHour(2);await f.service.process(f.key);
+    assert.equal(f.sent.length,1);assert.equal(f.handed.length,0);assert.equal(f.get().status,'review');
+  }
 });
 
 test('permite nombres de plantilla distintos para cada linea',()=>{

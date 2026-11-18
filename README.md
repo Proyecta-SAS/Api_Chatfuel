@@ -1,4 +1,10 @@
-# Api_Chatfuel — V1.0.40
+# Api_Chatfuel — V1.0.41
+
+V1.0.41 consulta el recibo exacto de Wasapi después de cada recordatorio.
+Un rechazo asíncrono como 131049 queda en revisión, sin reenvío automático ni
+traslado de etapa. El recordatorio de 72 horas mueve etapa y responsable en
+cuanto se confirma su entrega; la aceptación HTTP no basta. Los envíos a
+clientes permanecen pausados hasta completar la validación.
 
 V1.0.39 destaca en la confirmación final el recordatorio de tener a la mano el
 extracto más reciente del crédito hipotecario. También lo muestra al consultar
@@ -136,7 +142,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.40"` y
+Después del push, `/health` debe indicar `version: "1.0.41"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

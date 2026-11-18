@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {atlasflowRequest,atlasflowAccepted} from '../src/followups/atlasflow.js';
+import {atlasflowRequest,atlasflowAccepted,atlasflowReceipt} from '../src/followups/atlasflow.js';
 import {createFollowupGateway} from '../src/followups/gateway.js';
 
 const query=new URLSearchParams({deal_id:'{{ID}}',uuid:'00000000-0000-0000-0000-000000000001',
@@ -38,4 +38,13 @@ test('el adaptador hace un solo POST con datos reales; no ejecuta la URL como GE
   }});
   assert.deepEqual(await gateway.send({url,body:{},key:'test-key',context}),{accepted:true});
   assert.equal(count,1);
+});
+
+test('identifica un único recibo y verifica remitente y destinatario',()=>{
+  const result={status:'ok',respuesta:{sent:1,not_sent:0,logs:[{id:900,success:true,from_id:25152,recipient:context.phone}]}};
+  assert.deepEqual(atlasflowReceipt(result,context),{messageId:'900'});
+  assert.equal(atlasflowReceipt(result,{...context,fromId:'24020'}),null);
+  assert.equal(atlasflowReceipt(result,{...context,phone:'573009999999'}),null);
+  result.respuesta.logs.push({...result.respuesta.logs[0],id:901});
+  assert.equal(atlasflowReceipt(result,context),null);
 });

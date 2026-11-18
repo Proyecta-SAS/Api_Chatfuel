@@ -24,6 +24,7 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     if(!config.enabled || !config.ready)return;
     return store.withContact(key.channel,key.phone,async (record,save) => {
       if (!record) return;
+      if(record.status==='delivery_pending')return confirmDelivery(record,save);
       if (record.status==='handoff_pending') return handoff(record,save);
       if(record.status==='waiting_initial'){
         const reason=cancellationReason(await gateway.inspect(record.lead),record.lead,config);
@@ -71,15 +72,39 @@ export function createFollowupService({ config, store, gateway, now = () => Date
           fromId:config.channels[lead.channel].fromId}});
         if (sent?.accepted !== true) throw new Error('FOLLOWUP_DELIVERY_UNCERTAIN');
         record.steps[hour].status = 'accepted';
+        if(!/^[1-9]\d*$/.test(String(sent.messageId||'')))throw new Error('FOLLOWUP_RECEIPT_UNVERIFIED');
+        record.steps[hour].messageId=String(sent.messageId);
+        record.awaitingHour=hour;
         record.nextHour = HOURS[HOURS.indexOf(hour)+1] || null;
-        record.status = hour===72 ? 'handoff_pending' : 'pending';
-        record.nextDueAt=new Date(record.nextHour ? Date.parse(lead.initialAt)+record.nextHour*3600000 : now()).toISOString();
+        record.status = 'delivery_pending';
+        record.nextDueAt=new Date(now()+60000).toISOString();
         await save(record);
       } catch {
         record.steps[hour].status='unknown'; record.status='review'; await save(record); return;
       }
-      if (hour===72) await handoff(record,save);
+      await confirmDelivery(record,save);
     });
+  }
+  async function confirmDelivery(record,save){
+    const hour=record.awaitingHour,step=record.steps[hour];
+    if(!step?.messageId){record.status='review';record.reason='receipt_unverified';await save(record);return;}
+    const result=await gateway.delivery(record.lead,step.messageId);
+    if(result.status==='failed'){
+      step.status='failed';step.errorCode=result.errorCode;
+      record.status='review';record.reason='provider_rejected';
+      if(result.errorCode==='131049')step.retryNotBefore=new Date(now()+24*3600000).toISOString();
+      await save(record);return;
+    }
+    if(result.status!=='delivered'){
+      if(now()-Date.parse(step.at)>=15*60000){record.status='review';record.reason='delivery_unconfirmed';}
+      else record.nextDueAt=new Date(now()+60000).toISOString();
+      await save(record);return;
+    }
+    step.status='delivered';
+    record.status=hour===72?'handoff_pending':'pending';
+    record.nextDueAt=new Date(record.nextHour?Date.parse(record.lead.initialAt)+record.nextHour*3600000:now()).toISOString();
+    await save(record);
+    if(hour===72)await handoff(record,save);
   }
   async function handoff(record,save) {
     const snapshot=await gateway.inspect(record.lead);
@@ -88,8 +113,8 @@ export function createFollowupService({ config, store, gateway, now = () => Date
       && normalizePhone(snapshot.phone)===record.lead.phone && String(snapshot.category)===config.category){
       record.status='completed';await save(record);return;
     }
-    // Once the 72-hour template has been accepted, the user requires the stage
-    // change immediately, even if the quick reply races the acknowledgement.
+    // Once WhatsApp confirms the 72-hour template delivery, change stage
+    // immediately, even if the quick reply races that confirmation.
     // Citas, human intervention, identity and CRM changes remain protected.
     const reason=cancellationReason({...snapshot,incoming:false},record.lead,config);
     if (reason) {record.status='cancelled';record.reason=reason;await save(record);return;}
@@ -127,7 +152,7 @@ export function createFollowupService({ config, store, gateway, now = () => Date
       for (const key of await store.pending(new Date(now()).toISOString())) {
         try {await process(key);} catch {
           await store.withContact(key.channel,key.phone,async(record,save)=>{
-            if(record && ['waiting_initial','pending','handoff_pending'].includes(record.status)){
+            if(record && ['waiting_initial','pending','delivery_pending','handoff_pending'].includes(record.status)){
               record.nextDueAt=new Date(now()+60000).toISOString();await save(record);
             }
           });
