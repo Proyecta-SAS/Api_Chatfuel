@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { phoneVariants } from './phone.js';
 import { AppError } from './errors.js';
 import { createSchedulingStore } from './calendar/store.js';
+import { createFollowupStore } from './followups/store.js';
 
 export const schemaUrl = new URL('../sql/001_clientes.sql', import.meta.url);
 
@@ -14,9 +15,13 @@ export function createDatabase(uri) {
   });
   return {
     scheduling: createSchedulingStore(pool),
+    followups: createFollowupStore(pool),
     async init() {
       await pool.query(await readFile(schemaUrl, 'utf8'));
       for (const statement of (await readFile(new URL('../sql/002_agenda.sql', import.meta.url), 'utf8')).split(';').map(s => s.trim()).filter(Boolean)) {
+        await pool.query(statement);
+      }
+      for(const statement of (await readFile(new URL('../sql/003_seguimientos.sql',import.meta.url),'utf8')).split(';').map(s=>s.trim()).filter(Boolean)){
         await pool.query(statement);
       }
     },

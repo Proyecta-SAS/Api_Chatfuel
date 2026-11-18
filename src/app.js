@@ -9,7 +9,7 @@ function tokenMatches(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function createApp({ bitrix, database, webhookToken = '', logger = console, bookingHandler = null }) {
+export function createApp({ bitrix, database, webhookToken = '', logger = console, bookingHandler = null, followupHandler = null }) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -17,7 +17,9 @@ export function createApp({ bitrix, database, webhookToken = '', logger = consol
     const send = (status, data) => { res.writeHead(status); res.end(JSON.stringify(data)); };
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (bookingHandler && ['/booking', '/sync-handoffs'].includes(url.pathname)) {
+      const routedHandler=followupHandler && ['/followups/resume','/followups/cancel','/followups/status'].includes(url.pathname)
+        ? followupHandler : bookingHandler && ['/booking','/sync-handoffs'].includes(url.pathname) ? bookingHandler : null;
+      if (routedHandler) {
         const startedAt = Date.now();
         const headers = new Headers();
         for (const [key, value] of Object.entries(req.headers)) {
@@ -33,7 +35,7 @@ export function createApp({ bitrix, database, webhookToken = '', logger = consol
           }
         }
         const requestBody = Buffer.concat(chunks);
-        const response = await bookingHandler(new Request(url, {
+        const response = await routedHandler(new Request(url, {
           method: req.method, headers,
           ...(!['GET', 'HEAD'].includes(req.method) ? { body: requestBody } : {}),
         }));

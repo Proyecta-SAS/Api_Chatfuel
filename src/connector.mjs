@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS, APPOINTMENT_PREP
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.39';
+export const RELEASE_VERSION = '1.0.40';
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -19,7 +19,7 @@ const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_eleg
   'bitrix_agenda_estado', 'bitrix_agenda_respuesta', 'crm_30x_codigo', 'bitrix_reserva_pendiente',
   'crm_30x_handoff_hash', 'crm_30x_profile_comment_hash', 'last user freeform input',
   'solicitud_agendamiento', 'texto_solicitud_agendamiento', 'crm_30x_booking_intent_hash',
-  'crm_30x_incoming_recovery_hash','bitrix_responsable_id','bitrix_responsable_sync'];
+  'crm_30x_incoming_recovery_hash','bitrix_responsable_id','bitrix_responsable_sync','seguimiento_detener'];
 const PROFILE = ATTR.filter(name => !name.startsWith('bitrix_') && !name.startsWith('crm_')
   && !['solicitud_agendamiento', 'texto_solicitud_agendamiento'].includes(name));
 const attributeMap = attributes => Object.fromEntries((attributes ?? []).map(({ attr, value }) =>
@@ -975,6 +975,43 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     }
   };
   handle.synchronizeHandoffs = synchronizeHandoffs;
+  handle.followupContext = async contactId => {
+    if(!configured || !/^wa_\d+_\d+_\d{8,15}$/.test(contactId))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
+    const data=await graphql(`query FollowupContext($bot:BotID!,$id:ContactID!,$conversation:ConversationID!,$names:[AttributeName!]){
+      bot(id:$bot){contact(id:$id){id ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
+        ... on BotAttributeValueString{stringValue} ... on BotAttributeValueBoolean{booleanValue} ... on BotAttributeValueDouble{doubleValue}}}}
+        conversation(conversationID:$conversation){status messages(first:100){edges{node{id __typename sentTime}}}}}}`,
+      {bot:botID,id:contactId,conversation:contactId,names:ATTR});
+    const item=data.bot?.contact, conversation=data.bot?.conversation;
+    if(!item || !conversation || !Array.isArray(conversation.messages?.edges))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
+    const fields=attributeMap(item.attributes);
+    const phone=String(item.phone||'').replace(/\D/g,'');
+    if(phone!==contactId.split('_').at(-1))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
+    const state=decode(fields.bitrix_agenda_estado,contactId,{allowExpired:true});
+    return {phone,fields,human:conversation.status==='open',
+      incoming:conversation.messages.edges.some(e=>e.node.__typename.startsWith('WhatsAppIn')),
+      appointment:yes(fields.bitrix_reserva_pendiente) || ['booking','confirmed','check_pending'].includes(state?.step),
+      rejected:evaluateRchEligibility(fields).status==='NO_APLICA',optOut:fields.seguimiento_detener==='si'};
+  };
+  handle.stopFollowup = async contactId => {
+    await handle.followupContext(contactId);
+    await setAttributes(contactId,{seguimiento_detener:'si',seguimiento_mensaje:'Entendido. Detendremos los recordatorios y el seguimiento automático de esta solicitud. Gracias por avisarnos.'});
+    return {message:'Entendido. Detendremos los recordatorios y el seguimiento automático de esta solicitud. Gracias por avisarnos.',human:'no',done:'si'};
+  };
+  handle.resumeFollowup = async contactId => {
+    const snapshot=await handle.followupContext(contactId);
+    if(snapshot.optOut)return {message:'El seguimiento automático permanece detenido. Si deseas volver a recibir seguimiento, indícalo expresamente al equipo.',human:'no',done:'si'};
+    if(snapshot.human)return {message:'Tu solicitud ya está en atención con el equipo. Continuaremos contigo por este chat.',human:'si',done:'si'};
+    if(snapshot.appointment)return {message:'Ya hay una cita o una reserva en proceso. El equipo puede ayudarte a revisar su estado por este chat.',human:'si',done:'si'};
+    const result=evaluateRchEligibility(snapshot.fields);
+    const message=result.status==='APLICA'
+      ? 'Con gusto retomamos. ¿Te gustaría agendar una asesoría virtual de 30 minutos por Zoom con un asesor?'
+      : eligibilityMessage(result);
+    // The quick reply is a continuation request. No financial attributes, booking
+    // state, reservations or CRM stage are written here.
+    await setAttributes(contactId,{seguimiento_mensaje:message});
+    return {message,human:'no',done:'si'};
+  };
   handle.handoffStatus = handoffStatus;
   return handle;
 }

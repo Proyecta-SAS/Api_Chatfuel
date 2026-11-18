@@ -1,3 +1,12 @@
+# V1.0.40 - 2026-11-18
+
+- Prepara seguimientos de 1, 24 y 72 horas para DalIA y Chatfuel, con persistencia,
+  cancelacion por respuesta y reasignacion verificada al equipo.
+- Conecta las respuestas rapidas para continuar sin modificar filtros financieros
+  o detener el seguimiento, conservando citas y atencion humana.
+- Integra el contrato de AtlasFlow y separa recepcion, aceptacion y entrega.
+- Mantiene el programador apagado hasta completar la prueba de vinculacion.
+
 # V1.0.35 - 2026-11-12
 
 - Un teléfono con varias negociaciones permanece pendiente de revisión y deja de bloquear el ciclo de sincronización de otros contactos.

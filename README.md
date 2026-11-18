@@ -1,4 +1,4 @@
-# Api_Chatfuel — V1.0.39
+# Api_Chatfuel — V1.0.40
 
 V1.0.39 destaca en la confirmación final el recordatorio de tener a la mano el
 extracto más reciente del crédito hipotecario. También lo muestra al consultar
@@ -136,9 +136,17 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.39"` y
+Después del push, `/health` debe indicar `version: "1.0.40"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 
 Ver [migración](docs/MIGRACION.md), [Railway](docs/RAILWAY.md),
 [vinculación](docs/VINCULACION-CITAS.md) y [pruebas WhatsApp](docs/PRUEBAS.md).
+
+## Seguimientos de leads sin respuesta
+
+Preparación de recordatorios a 1, 24 y 72 horas para DalIA y Chatfuel, con cola
+MySQL, cancelación por respuesta, botones para continuar o detener y gestión
+humana al cierre. Desactivados por defecto; requieren las plantillas aprobadas,
+la vinculación de los botones y los webhooks de sus automatizaciones.
+Ver [seguimientos](docs/SEGUIMIENTOS.md).
