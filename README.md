@@ -1,4 +1,12 @@
-# Api_Chatfuel — V1.0.41
+# Api_Chatfuel — V1.0.42
+
+V1.0.42 reconoce preguntas como «qué agenda tienen disponible» y abre la
+consulta sin crear una reserva. Una aceptación reciente de la invitación se
+retoma tras diez segundos si Fuely no responde; el observador programa una
+comprobación sin exigir otro mensaje del cliente. Verifica la asignación
+actual y conserva las protecciones de atención humana, reservas, negativas,
+mensajes antiguos e idempotencia. La disponibilidad se revalida al confirmar;
+un bloqueo añadido después de ofrecer horarios impide reservar ese intervalo.
 
 V1.0.41 consulta el recibo exacto de Wasapi después de cada recordatorio.
 Un rechazo asíncrono como 131049 queda en revisión, sin reenvío automático ni
@@ -142,7 +150,7 @@ Una cita incierta bloquea su intervalo hasta verificarse.
 GitHub: `Proyecta-SAS/Api_Chatfuel`, rama `main`; cada colaborador usa su propia cuenta.
 Servicio: https://apichatfuel-production.up.railway.app
 
-Después del push, `/health` debe indicar `version: "1.0.41"` y
+Después del push, `/health` debe indicar `version: "1.0.42"` y
 `calendar.independent: true`. La carpeta temporal `AI-First-One/` está excluida
 de Git y Docker y se puede eliminar: no forma parte del arranque ni de las pruebas.
 

@@ -114,6 +114,15 @@ function fixture(store = memoryStore(), pool = advisors) {
   set failStage(v){failStage=v;},set registered(v){registered=v;},set dealPhone(v){dealPhone=v;},set omitCalendar(v){omitCalendar=v;}};
 }
 async function scenarios(t, create) {
+  await t.test('un bloqueo añadido después de consultar horarios impide confirmar la reserva',async()=>{
+    const f=await create();const code=await f.profile();
+    const before=await f.service.availability(code,{dateFrom:'2026-11-03',dateTo:'2026-11-03',fromTime:'09:00',toTime:'09:30',durationMinutes:30});
+    assert.ok(before.data.slots.some(s=>Date.parse(s.startAt)===Date.parse(request.startAt)));
+    f.blockedOwner='10';
+    await assert.rejects(f.service.book(code,request,'manual-block-after-offer'),/SLOT_UNAVAILABLE/);
+    assert.equal(f.events.length,0);
+    assert.equal(f.calls.filter(c=>c.method==='calendar.event.add').length,0);
+  });
   await t.test('una negociación eliminada no bloquea horarios ni vincula citas al ID inexistente',async()=>{
     const f=await create();f.missingDeal=true;
     const code=await f.profile();

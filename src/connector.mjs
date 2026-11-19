@@ -4,7 +4,8 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS, APPOINTMENT_PREP
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.41';
+export const RELEASE_VERSION = '1.0.42';
+const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
   'nombre_completo', 'ciudad_municipio', 'obligacion_vivienda_activa',
@@ -170,7 +171,12 @@ function requestsScheduleOptions(value) {
   const target = '(?:(?:un|una|el|la|los|las|otro|otra|otros|otras|nuevo|nueva|nuevos|nuevas) ){0,2}'
     + '(?:horarios?|opciones(?: de horarios?)?|citas?|asesorias?|reuniones?)'
     + '(?: (?:disponibles?|libres?))?(?: para (?:una |mi )?(?:cita|asesoria|reunion))?';
-  return new RegExp(`^${courtesy}(?:${intent} (?:${action} )?|${command} )${target}(?: por favor| porfa)?(?: gracias)?$`).test(text);
+  const availabilityQuestion = '(?:(?:que|cuales) (?:agenda|horarios|opciones de horarios) '
+    + '(?:tienen?|hay|estan?) (?:disponibles?|libres?)|'
+    + '(?:que|cuales) (?:agenda|horarios) (?:disponibles?|libres?) (?:tienen?|hay)|'
+    + 'cual es la disponibilidad(?: para (?:una |mi )?(?:cita|asesoria|reunion))?)';
+  return new RegExp(`^${courtesy}(?:${intent} (?:${action} )?|${command} )${target}(?: por favor| porfa)?(?: gracias)?$`).test(text)
+    || new RegExp(`^${courtesy}${availabilityQuestion}(?: por favor| porfa)?(?: gracias)?$`).test(text);
 }
 function explicitBooking(value) {
   const text = normalize(value).replace(/^[¿¡]+/,'');
@@ -527,6 +533,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   async function synchronizeHandoffs() {
     if (syncing) return syncing;
     syncing = (async () => {
+      handoffStatus.bookingRetryAfterMs = null;
       let after = null;
       let synchronized = 0;
       let ambiguousContacts = 0;
@@ -589,16 +596,19 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             const active = state && ['name', 'city', 'active', 'period', 'day', 'choose', 'confirm', 'booking', 'confirmed', 'check_pending','past_appointment'].includes(state.step);
             if ((!resumesCancellation && !resumeEligibleBooking && !yes(fields.solicitud_agendamiento) && !explicitBooking(fields['last user freeform input']) && !confirmBooking(fields['last user freeform input']) && !availabilityAnswer(fields['last user freeform input']))
               || active || yes(fields.bitrix_reserva_pendiente) || !env.CHATFUEL_BOOKING_FLOW_ID) continue;
-            const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!){bot(id:$botID){conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id });
+            const current = await graphql('query NaturalBookingContext($botID:BotID!,$id:ConversationID!,$contactID:ContactID!){bot(id:$botID){contact(id:$contactID){assignee{__typename} unhandledSwitchToHuman} conversation(conversationID:$id){status messages(first:20){edges{node{__typename id sentTime ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text}}}}}}}', { botID, id: node.id, contactID:node.id });
             if (current.bot.conversation.status === 'open') continue;
+            const liveContact=current.bot.contact;
+            if(liveContact && (liveContact.unhandledSwitchToHuman
+              || liveContact.assignee?.__typename!=='FuelyAIAssignee'))continue;
             const messages = current.bot.conversation.messages.edges.map(edge => edge.node);
             const incomingIndex = messages.findIndex(message => message.__typename.startsWith('WhatsAppIn'));
             const incoming = messages[incomingIndex];
-            if (!messages.slice(0, incomingIndex).some(message => message.__typename.startsWith('WhatsAppOut'))) continue;
+            const botReplied=messages.slice(0,incomingIndex).some(message=>message.__typename.startsWith('WhatsAppOut'));
             if (incoming?.__typename !== 'WhatsAppInTextMessage' || declineBooking(incoming.text)) continue;
             // Configuration changes must not replay already answered old requests.
             const incomingAt=Date.parse(incoming.sentTime);
-            if(!Number.isFinite(incomingAt)||now()-incomingAt>5*60_000)continue;
+            if(!Number.isFinite(incomingAt)||incomingAt>now()||now()-incomingAt>5*60_000)continue;
             const evidence = value => normalize(value).replace(/[¿?¡!.,;:"'«»]/g, '').replace(/\s+/g, ' ').trim();
             const preceding = messages.slice(incomingIndex + 1).find(message =>
               message.__typename.startsWith('WhatsAppIn') || message.__typename.startsWith('WhatsAppOut'));
@@ -618,6 +628,14 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
             const cancelledRequest = cancelled && (confirmBooking(incoming.text)
               || explicitBooking(incoming.text) || selection(incoming.text,5)!==null);
             if (!cancelledRequest && !resumeEligibleBooking && !repeatedAcceptance && !explicitBooking(incoming.text) && !acceptedOffer && !requestedAvailability && !(capturedIntent && !confirmBooking(incoming.text))) continue;
+            // Let Fuely finish its current answer, but do not strand an accepted
+            // invitation if it never responds. Only verified recent intent can
+            // schedule this retry; old messages and financial answers stay out.
+            if(!botReplied && now()-incomingAt<NATURAL_BOOKING_REPLY_WAIT_MS){
+              const wait=NATURAL_BOOKING_REPLY_WAIT_MS-(now()-incomingAt);
+              handoffStatus.bookingRetryAfterMs=Math.min(handoffStatus.bookingRetryAfterMs??wait,wait);
+              continue;
+            }
             const intentHash = createHash('sha256').update(`${node.id}|${incoming.id}`).digest('hex');
             if (fields.crm_30x_booking_intent_hash === intentHash
               || routedBookingIntents.get(node.id) === intentHash) continue;
@@ -1033,7 +1051,12 @@ export function startHandoffListener(handler, { env = process.env, WebSocketImpl
     catch {
       if (!stopped && !retryTimer) retryTimer = delay(() => { retryTimer = null; void sync(); }, 10_000);
     }
-    finally { running = false; }
+    finally {
+      running = false;
+      if(!stopped && Number.isFinite(state.bookingRetryAfterMs) && !retryTimer){
+        retryTimer=delay(()=>{retryTimer=null;void sync();},Math.max(250,state.bookingRetryAfterMs));
+      }
+    }
   }
   function beat() {
     if (stopped || socket?.readyState !== 1) return;

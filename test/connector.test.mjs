@@ -24,7 +24,7 @@ const SLOTS = [
 
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
-  naturalStatus = 'closed', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
+  naturalStatus = 'closed', naturalAssignee = 'FuelyAIAssignee', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
   database = null, stagePending = false, resolveError = null, resolveErrorCode = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
@@ -37,7 +37,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
     const payload = JSON.parse(init.body);
     calls.push({ url, payload, headers: init.headers });
     if (url.endsWith('/graphql')) {
-      if (payload.query.includes('query NaturalBookingContext')) return Response.json({ data: { bot: { conversation: {
+      if (payload.query.includes('query NaturalBookingContext')) return Response.json({ data: { bot: { contact:{assignee:naturalAssignee ? {__typename:naturalAssignee}:null},conversation: {
         status: naturalStatus, messages: { edges: [...(botReplied ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'outgoing-1' } }] : []), { node: { __typename: 'WhatsAppInTextMessage', id: 'incoming-1', text: latestText,sentTime:incomingSentTime } }, ...(previousReply ? [{ node: { __typename: 'WhatsAppOutTextMessage', id: 'offer-1', text: previousReply } }] : []), ...olderMessages.map(node => ({ node }))] },
       } } } });
       if (payload.query.includes('mutation NaturalBookingFlow')) return Response.json({ data: {
@@ -1057,6 +1057,51 @@ test('natural routing waits for the assistant reply before starting the calendar
   const f = fixture({ initial: { 'last user freeform input': text }, latestText: text, botReplied: false });
   await f.handle.synchronizeHandoffs();
   assert.equal(f.calls.filter(c => c.payload.query?.includes('mutation NaturalBookingFlow')).length, 0);
+});
+
+test('las preguntas reales por disponibilidad abren opciones sin reservar',async()=>{
+  for(const latestText of ['Que agenda tienen disponible','¿Qué horarios tienen disponibles?',
+    '¿Cuál es la disponibilidad para una cita?','Que horarios hay disponibles por favor']){
+    const f=fixture({latestText,initial:{'last user freeform input':latestText,solicitud_agendamiento:'PENDIENTE'}});
+    await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1,latestText);
+    assert.equal(f.bookings().length,0);
+  }
+  for(const latestText of ['¿Qué tasa tienen disponible?','No quiero consultar la agenda',
+    'Si tuviera tiempo, ¿qué horarios tienen disponibles?','¿Tienen agenda disponible solo si es gratis?']){
+    const f=fixture({latestText,initial:{'last user freeform input':latestText}});
+    await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0,latestText);
+  }
+});
+
+test('un sí a la invitación retoma la agenda si el bot no responde tras la espera',async()=>{
+  const f=fixture({botReplied:false,latestText:'Si',previousReply:'¡Felicitaciones! Aplicas según nuestros filtros iniciales. ¿Te gustaría agendar una cita de asesoría virtual de 30 minutos por Zoom con un asesor?',
+    initial:{'last user freeform input':'Si',solicitud_agendamiento:'PENDIENTE',texto_solicitud_agendamiento:'PENDIENTE'}});
+  await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0);
+  assert.equal(f.handle.handoffStatus.bookingRetryAfterMs,10_000);
+  f.advance(10_000);await f.handle.synchronizeHandoffs();await f.handle.synchronizeHandoffs();
+  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+  assert.equal(f.bookings().length,0);
+});
+
+test('la recuperación de agenda respeta rechazos, preguntas financieras, mensajes antiguos y atención humana',async()=>{
+  const offer='¿Te gustaría agendar una cita de asesoría virtual con un asesor?';
+  for(const options of [
+    {latestText:'no gracias',previousReply:offer},
+    {latestText:'si',previousReply:'¿Puedes aumentar un poco tu cuota mensual?'},
+    {latestText:'si',previousReply:offer,naturalStatus:'open'},
+    {latestText:'si',previousReply:offer,naturalAssignee:'PublicUserAccount'},
+    {latestText:'si',previousReply:offer,naturalAssignee:null},
+    {latestText:'si',previousReply:offer,incomingSentTime:new Date(START-6*60_000).toISOString()},
+    {latestText:'si',previousReply:offer,incomingSentTime:new Date(START+60_000).toISOString()},
+  ]){
+    const f=fixture({botReplied:false,initial:{'last user freeform input':options.latestText},...options});
+    f.advance(10_000);await f.handle.synchronizeHandoffs();
+    assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,0,JSON.stringify(options));
+    assert.equal(f.bookings().length,0);
+  }
 });
 
 
