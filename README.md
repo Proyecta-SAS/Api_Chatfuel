@@ -1,4 +1,7 @@
-# Api_Chatfuel — V1.0.44
+# Api_Chatfuel — V1.0.45
+
+V1.0.45 distingue la asignación automática de Wasapi de una atención humana y
+espera la bienvenida entregada antes de exigir una conversación nativa.
 
 V1.0.44 actualiza la identificación de salud de la versión de seguimientos.
 

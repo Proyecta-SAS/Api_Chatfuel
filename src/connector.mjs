@@ -4,7 +4,7 @@ import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS, APPOINTMENT_PREP
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 
-export const RELEASE_VERSION = '1.0.44';
+export const RELEASE_VERSION = '1.0.45';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -996,7 +996,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   handle.followupContext = async contactId => {
     if(!configured || !/^wa_\d+_\d+_\d{8,15}$/.test(contactId))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
     const data=await graphql(`query FollowupContext($bot:BotID!,$id:ContactID!,$conversation:ConversationID!,$names:[AttributeName!]){
-      bot(id:$bot){contact(id:$id){id assignee{__typename} unhandledSwitchToHuman ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
+      bot(id:$bot){contact(id:$id){id assignee{__typename ... on PublicUserAccount{accountType}} unhandledSwitchToHuman ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
         ... on BotAttributeValueString{stringValue} ... on BotAttributeValueBoolean{booleanValue} ... on BotAttributeValueDouble{doubleValue}}}}
         conversation(conversationID:$conversation){status messages(first:100){edges{node{id __typename sentTime sender{__typename}
           ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{whatsappStatus}}}}}}}`,
@@ -1012,7 +1012,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const prompts=messages.filter(m=>m.__typename==='WhatsAppOutTextMessage' && m.sender?.__typename==='AutomationMessageSender'
       && ['Read','Delivered','read','delivered'].includes(m.whatsappStatus));
     return {phone,fields,human:conversation.status==='open' || item.unhandledSwitchToHuman===true
-        || Boolean(item.assignee && item.assignee.__typename!=='FuelyAIAssignee'),
+        || Boolean(item.assignee && !['FuelyAIAssignee','ExternalAppAssignee'].includes(item.assignee.__typename)
+          && item.assignee.accountType!=='Virtual'),
       activityVerified:messages.every(m=>Number.isFinite(Date.parse(m.sentTime))),
       lastIncomingAt:incoming[0]?.sentTime || null,lastIncomingText:incoming[0]?.text || '',
       lastPromptAt:prompts[0]?.sentTime || null,

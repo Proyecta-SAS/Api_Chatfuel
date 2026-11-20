@@ -65,3 +65,23 @@ test('consulta el recibo exacto y distingue leído, aceptado y error 131049',asy
     assert.equal((await gateway.delivery(lead,'901')).status,'pending');
   }
 });
+
+test('sin bienvenida entregada espera sin exigir un chat nativo todavía inexistente',async()=>{
+  const phone='573001234567';
+  const gateway=createFollowupGateway({config:{inactivity:true,enrollAfter:'2026-11-20T00:00:00Z',channels:{Chatfuel:{fromId:'24020'}}},
+    bitrix:{call:async()=>({ID:'33',UF_CRM_1584616588730:phone,CATEGORY_ID:'370',STAGE_ID:'C370:NEW',ASSIGNED_BY_ID:'7'})},
+    bookingHandler:{followupContext:async()=>assert.fail('La bienvenida falló; aún no hay conversación nativa')},
+    fetchImpl:async()=>Response.json({data:[],last_page:1})});
+  assert.equal((await gateway.inspect({id:'33',phone,channel:'Chatfuel',createdAt:'2026-11-20T00:00:00Z'})).activityVerified,true);
+});
+
+test('la asignación externa automática permite seguimiento y un humano lo protege',async()=>{
+  for(const [assignee,human] of [[{__typename:'ExternalAppAssignee'},false],[{__typename:'FuelyAIAssignee'},false],
+    [{__typename:'PublicUserAccount',accountType:'Virtual'},false],[{__typename:'PublicUserAccount',accountType:'Human'},true]]){
+    const id='wa_11_22_573001234567';
+    const handler=createHandler({env:{CHATFUEL_BOT_ID:'test',CHATFUEL_API_TOKEN:'test',CHATFUEL_BOOKING_SECRET:'s'.repeat(32)},
+      scheduling:{request:async()=>assert.fail('No reservar')},fetchImpl:async()=>Response.json({data:{bot:{
+        contact:{id,phone:'573001234567',assignee,attributes:[]},conversation:{status:'automated',messages:{edges:[]}}}}})});
+    assert.equal((await handler.followupContext(id)).human,human);
+  }
+});

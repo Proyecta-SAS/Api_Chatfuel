@@ -27,10 +27,12 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
   async function inspect(lead) {
     const deal=await bitrix.call('crm.deal.get',{id:lead.id});
     const source=await history(lead.channel,lead.phone);
-    const native=lead.channel==='Chatfuel'
+    const hasInitial=Boolean(lead.initialAt) || source.messages.some(m=>m.type==='out' && m.message_type==='template'
+      && ['delivered','read'].includes(m.status) && Date.parse(m.created_at)>=Date.parse(lead.createdAt||config.enrollAfter));
+    const native=lead.channel==='Chatfuel' && hasInitial
       ? await bookingHandler.followupContext(config.contactPrefix+lead.phone) : {};
     const activity=config.inactivity ? conversationActivity(source.messages,native,lead.initialAt||lead.createdAt) : {};
-    if(config.inactivity && lead.channel==='Chatfuel' && native.activityVerified!==true)throw new Error('FOLLOWUP_ACTIVITY_UNVERIFIED');
+    if(config.inactivity && lead.channel==='Chatfuel' && hasInitial && native.activityVerified!==true)throw new Error('FOLLOWUP_ACTIVITY_UNVERIFIED');
     return {verified:true,id:String(deal.ID),phone:deal.UF_CRM_1584616588730,
       category:String(deal.CATEGORY_ID),stage:deal.STAGE_ID,responsible:String(deal.ASSIGNED_BY_ID),
       incoming:source.messages.some(m=>m.type==='in') || native.incoming===true,

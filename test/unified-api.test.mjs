@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import {readFileSync} from 'node:fs';
 import { createApp } from '../src/app.js';
 import { createHandler } from '../src/connector.mjs';
 
@@ -41,7 +42,7 @@ test('la salud conjunta identifica la versión y comprueba MySQL y la configurac
   const response = await request('/health');
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.version, '1.0.42');
+  assert.equal(body.version, JSON.parse(readFileSync(new URL('../package.json',import.meta.url))).version);
   assert.equal(body.service, 'api-chatfuel');
   assert.equal(body.mysql.ok, true);
   assert.equal(body.handoff.enabled, false);
