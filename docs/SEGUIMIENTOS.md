@@ -2,7 +2,8 @@
 
 Implementación desactivada por defecto. El 18/11 se verificaron las seis
 plantillas aprobadas y sus webhooks y se vincularon los flujos de botones.
-El programador sigue pausado mientras se completa la validación.
+La activación de producción requiere `FOLLOWUPS_ENABLED=true`; consultar el
+estado real en `/followups/status` y conservar evidencia del corte de activación.
 
 ## Programación y persistencia
 
@@ -14,6 +15,17 @@ vuelve a recorrer todo el historial CRM en cada ciclo.
 El primer envío de plantilla entregado o leído en la línea de origen fija la
 hora inicial. Los pasos se programan a 1, 24 y 72 horas desde ese envío, no de
 forma acumulada entre recordatorios. El ciclo del trabajador es de un minuto.
+La bienvenida debe corresponder al ingreso actual del lead, evitando usar una
+plantilla antigua del mismo número.
+
+Desde V1.0.43, `FOLLOWUPS_INACTIVITY_ENABLED=true` incluye conversaciones que
+respondieron y quedaron incompletas. Cada nueva respuesta invalida los pasos
+anteriores. La siguiente pregunta entregada del bot fija un nuevo ciclo de
+1, 24 y 72 horas. Mientras el bot no responda, no se envían recordatorios.
+Las plantillas de seguimiento no reinician el reloj. Cada ciclo tiene su clave
+de envío y conserva la evidencia previa. En Chatfuel se consultan también las
+fechas y el remitente del historial nativo: Wasapi puede reflejar únicamente
+las plantillas enviadas por su API. Un mensaje humano no inicia un ciclo.
 DalIA usa from_id 25152 y Chatfuel 24020; deben verificarse al vincular las
 automatizaciones de la cuenta. Nunca cambiar el país de un teléfono por inferencia.
 
@@ -25,10 +37,13 @@ incierta queda en revisión, sin reenvío automático. Tras una interrupción se
 los pasos ya vencidos para evitar enviar varios mensajes juntos.
 
 Cada paso consulta de nuevo Bitrix y Wasapi; en Chatfuel consulta también la
-conversación, las capturas del perfil y el estado firmado de la agenda. Respuestas
-entrantes, bajas, descartes, citas, atención humana y cambios de responsable,
+conversación, las capturas del perfil y el estado firmado de la agenda. Bajas,
+descartes, citas, atención humana y cambios de responsable,
 teléfono, embudo o etapa detienen el seguimiento. Una consulta incompleta no
-autoriza el envío. La cancelación no borra su evidencia persistida.
+autoriza el envío. Con el modo de inactividad apagado, cualquier respuesta
+entrante cancela definitivamente los pendientes, como en la versión anterior.
+Con ese modo encendido, una respuesta espera la próxima pregunta del bot.
+La cancelación no borra su evidencia persistida.
 
 La aceptación del webhook confirma solo que la automatización aceptó la solicitud.
 No acredita entrega de WhatsApp. `FOLLOWUPS_WEBHOOK_ACCEPT_FIELD` identifica un
@@ -74,7 +89,8 @@ La URL del webhook de **envío** de la automatización y esta URL de **retorno**
 botón cumplen funciones distintas. Una plantilla de Meta por sí sola no conecta
 estas acciones. El secreto permanece en la acción HTTP del flujo, no en el botón.
 Los flujos personalizados requieren configuración del panel/GraphQL; la conexión
-MCP disponible no expone su edición. Esta vinculación externa queda pendiente.
+MCP disponible no expone su edición. Se vincularon el 18/11; comprobar que las
+acciones publicadas conserven la URL, autenticación y mapeos correctos.
 
 La respuesta positiva cancela los pendientes y vuelve a preguntar únicamente el
 filtro faltante. Con perfil completo ofrece la invitación a agenda, sin reservar.

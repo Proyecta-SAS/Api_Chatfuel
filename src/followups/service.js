@@ -1,4 +1,5 @@
 import { HOURS, normalizePhone, cancellationReason, renderWebhookPayload } from './policy.js';
+import { refreshInactivity } from './activity.js';
 
 export function createFollowupService({ config, store, gateway, now = () => Date.now() }) {
   let running = false;
@@ -13,10 +14,13 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     const canonical = { ...lead, id:String(lead.id), responsible:String(lead.responsible), phone };
     return store.withContact(lead.channel, phone, async (existing, save) => {
       if (existing) return { enrolled: false, existing: true };
-      const reason = waiting ? null : cancellationReason(await gateway.inspect(canonical), canonical, config);
+      const snapshot=waiting ? null : await gateway.inspect(canonical);
+      const reason = waiting ? null : cancellationReason(snapshot, canonical, config);
       if (reason) return { enrolled: false, reason };
-      await save({ lead: canonical, status: waiting?'waiting_initial':'pending', steps: {}, nextHour: 1,
-        nextDueAt:new Date(waiting?now():anchor+3600000).toISOString() });
+      const record={ lead: canonical, status: waiting?'waiting_initial':'pending', steps: {}, nextHour: 1,
+        nextDueAt:new Date(waiting?now():anchor+3600000).toISOString() };
+      if(config.inactivity && snapshot)refreshInactivity(record,snapshot,now());
+      await save(record);
       return { enrolled: true };
     });
   }
@@ -41,27 +45,34 @@ export function createFollowupService({ config, store, gateway, now = () => Date
         }else{record.nextDueAt=new Date(now()+60000).toISOString();}
         await save(record);return;
       }
-      if (record.status !== 'pending') return;
+      if (!['pending','awaiting_activity'].includes(record.status)) return;
       const lead = record.lead;
-      const reason = cancellationReason(await gateway.inspect(lead),lead,config);
+      const snapshot=await gateway.inspect(lead);
+      const reason = cancellationReason(snapshot,lead,config);
       if (reason) { record.status = 'cancelled'; record.reason = reason; await save(record); return; }
+      if(config.inactivity && refreshInactivity(record,snapshot,now())){await save(record);return;}
+      if(record.status==='awaiting_activity'){
+        record.nextDueAt=new Date(now()+60000).toISOString();await save(record);return;
+      }
+      const anchor=Date.parse(record.anchorAt||lead.initialAt);
       const hour = record.nextHour;
-      if (!HOURS.includes(hour) || now() < Date.parse(lead.initialAt)+hour*3600000) return;
+      if (!HOURS.includes(hour) || now() < anchor+hour*3600000) return;
       // A process may have died after dispatch; never resend an uncertain message.
       if (record.steps[hour]) { record.status = 'review'; await save(record); return; }
       // Do not send obsolete reminders in a burst after downtime.
-      const latest = HOURS.filter(h=>now() >= Date.parse(lead.initialAt)+h*3600000).at(-1);
+      const latest = HOURS.filter(h=>now() >= anchor+h*3600000).at(-1);
       if (latest !== hour) {
         for (const h of HOURS.filter(h=>h>=hour && h<latest)) record.steps[h] = { status:'skipped_expired' };
         record.nextHour = latest;
-        record.nextDueAt=new Date(Date.parse(lead.initialAt)+latest*3600000).toISOString();
+        record.nextDueAt=new Date(anchor+latest*3600000).toISOString();
         await save(record);
         return;
       }
       const checked = await gateway.inspect(lead);
       const freshReason = cancellationReason(checked,lead,config);
       if (freshReason) { record.status='cancelled'; record.reason=freshReason; await save(record); return; }
-      const key = `followup:${lead.channel}:${lead.phone}:${lead.id}:${hour}`;
+      if(config.inactivity && refreshInactivity(record,checked,now())){await save(record);return;}
+      const key = `followup:${lead.channel}:${lead.phone}:${lead.id}:${hour}${config.inactivity?':'+anchor:''}`;
       const body = renderWebhookPayload(config.payload,{ phone:lead.phone, name:lead.name || '', channel:lead.channel,
         fromId:config.channels[lead.channel].fromId, dealId:lead.id, template:config.templates[lead.channel][hour], hours:hour, idempotencyKey:key });
       record.steps[hour] = { status:'dispatching', key, at:new Date(now()).toISOString() };
@@ -102,7 +113,7 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     }
     step.status='delivered';
     record.status=hour===72?'handoff_pending':'pending';
-    record.nextDueAt=new Date(record.nextHour?Date.parse(record.lead.initialAt)+record.nextHour*3600000:now()).toISOString();
+    record.nextDueAt=new Date(record.nextHour?Date.parse(record.anchorAt||record.lead.initialAt)+record.nextHour*3600000:now()).toISOString();
     await save(record);
     if(hour===72)await handoff(record,save);
   }
@@ -118,6 +129,7 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     // Citas, human intervention, identity and CRM changes remain protected.
     const reason=cancellationReason({...snapshot,incoming:false},record.lead,config);
     if (reason) {record.status='cancelled';record.reason=reason;await save(record);return;}
+    if(config.inactivity && refreshInactivity(record,snapshot,now())){await save(record);return;}
     if(!record.assignedTo){record.assignedTo=await store.nextSetter(config.setterIds);await save(record);}
     await gateway.handoff(record.lead,config.targetStage,record.assignedTo);
     record.status='completed';await save(record);
@@ -128,7 +140,9 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     return store.withContact(channel,phone,async (record,save)=>{
       if (!record) return { cancelled:false };
       // Keep the durable dispatch evidence, including ambiguous delivery.
-      record.status='cancelled';record.reason='customer_replied';await save(record);
+      record.status=config.inactivity && !['review','completed','handoff_pending','delivery_pending'].includes(record.status)
+        ? 'awaiting_activity':'cancelled';
+      record.nextDueAt=new Date(now()+60000).toISOString();record.reason='customer_replied';await save(record);
       return {cancelled:true,lead:record.lead};
     });
   }
@@ -152,7 +166,7 @@ export function createFollowupService({ config, store, gateway, now = () => Date
       for (const key of await store.pending(new Date(now()).toISOString())) {
         try {await process(key);} catch {
           await store.withContact(key.channel,key.phone,async(record,save)=>{
-            if(record && ['waiting_initial','pending','delivery_pending','handoff_pending'].includes(record.status)){
+            if(record && ['waiting_initial','pending','awaiting_activity','delivery_pending','handoff_pending'].includes(record.status)){
               record.nextDueAt=new Date(now()+60000).toISOString();await save(record);
             }
           });

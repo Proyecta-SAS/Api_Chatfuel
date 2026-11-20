@@ -996,9 +996,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   handle.followupContext = async contactId => {
     if(!configured || !/^wa_\d+_\d+_\d{8,15}$/.test(contactId))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
     const data=await graphql(`query FollowupContext($bot:BotID!,$id:ContactID!,$conversation:ConversationID!,$names:[AttributeName!]){
-      bot(id:$bot){contact(id:$id){id ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
+      bot(id:$bot){contact(id:$id){id assignee{__typename} unhandledSwitchToHuman ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
         ... on BotAttributeValueString{stringValue} ... on BotAttributeValueBoolean{booleanValue} ... on BotAttributeValueDouble{doubleValue}}}}
-        conversation(conversationID:$conversation){status messages(first:100){edges{node{id __typename sentTime}}}}}}`,
+        conversation(conversationID:$conversation){status messages(first:100){edges{node{id __typename sentTime sender{__typename}
+          ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{whatsappStatus}}}}}}}`,
       {bot:botID,id:contactId,conversation:contactId,names:ATTR});
     const item=data.bot?.contact, conversation=data.bot?.conversation;
     if(!item || !conversation || !Array.isArray(conversation.messages?.edges))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
@@ -1006,7 +1007,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const phone=String(item.phone||'').replace(/\D/g,'');
     if(phone!==contactId.split('_').at(-1))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
     const state=decode(fields.bitrix_agenda_estado,contactId,{allowExpired:true});
-    return {phone,fields,human:conversation.status==='open',
+    const messages=conversation.messages.edges.map(e=>e.node).sort((a,b)=>Date.parse(b.sentTime)-Date.parse(a.sentTime));
+    const incoming=messages.filter(m=>m.__typename.startsWith('WhatsAppIn'));
+    const prompts=messages.filter(m=>m.__typename==='WhatsAppOutTextMessage' && m.sender?.__typename==='AutomationMessageSender'
+      && ['Read','Delivered','read','delivered'].includes(m.whatsappStatus));
+    return {phone,fields,human:conversation.status==='open' || item.unhandledSwitchToHuman===true
+        || Boolean(item.assignee && item.assignee.__typename!=='FuelyAIAssignee'),
+      activityVerified:messages.every(m=>Number.isFinite(Date.parse(m.sentTime))),
+      lastIncomingAt:incoming[0]?.sentTime || null,lastIncomingText:incoming[0]?.text || '',
+      lastPromptAt:prompts[0]?.sentTime || null,
       incoming:conversation.messages.edges.some(e=>e.node.__typename.startsWith('WhatsAppIn')),
       appointment:yes(fields.bitrix_reserva_pendiente) || ['booking','confirmed','check_pending'].includes(state?.step),
       rejected:evaluateRchEligibility(fields).status==='NO_APLICA',optOut:fields.seguimiento_detener==='si'};

@@ -1,5 +1,6 @@
 import { normalizePhone } from './policy.js';
 import { isAtlasflowWebhook, atlasflowRequest, atlasflowAccepted, atlasflowReceipt } from './atlasflow.js';
+import { conversationActivity } from './activity.js';
 
 const CAMPAIGNS=['RCH-03/2026-CAMP-META','RCH-02/2026-CAMP-META','RCH - 04/ SEPT 2026',
   'NOV TESTING- RCH- LEADS QA','NOV TESTING- RCH- LEADS NORM'];
@@ -28,10 +29,12 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
     const source=await history(lead.channel,lead.phone);
     const native=lead.channel==='Chatfuel'
       ? await bookingHandler.followupContext(config.contactPrefix+lead.phone) : {};
+    const activity=config.inactivity ? conversationActivity(source.messages,native,lead.initialAt||lead.createdAt) : {};
+    if(config.inactivity && lead.channel==='Chatfuel' && native.activityVerified!==true)throw new Error('FOLLOWUP_ACTIVITY_UNVERIFIED');
     return {verified:true,id:String(deal.ID),phone:deal.UF_CRM_1584616588730,
       category:String(deal.CATEGORY_ID),stage:deal.STAGE_ID,responsible:String(deal.ASSIGNED_BY_ID),
       incoming:source.messages.some(m=>m.type==='in') || native.incoming===true,
-      optOut:native.optOut===true,
+      ...activity,optOut:native.optOut===true || activity.optOut===true,
       human:['human','livechat','assigned','open'].includes(source.state) || native.human===true,
       appointment:Boolean(deal.UF_CRM_1726241234) || native.appointment===true,
       rejected:deal.CLOSED==='Y' || native.rejected===true};
@@ -54,6 +57,7 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
     async initialContact(lead){
       const source=await history(lead.channel,lead.phone);
       return source.messages.filter(m=>m.type==='out' && m.message_type==='template'
+        && Date.parse(m.created_at)>=Date.parse(lead.createdAt || config.enrollAfter)
         && ['read','delivered'].includes(m.status)).sort((a,b)=>Date.parse(a.created_at)-Date.parse(b.created_at))[0]?.created_at || null;
     },
     async discover(after,last='0') {

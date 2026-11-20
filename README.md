@@ -1,4 +1,12 @@
-# Api_Chatfuel — V1.0.42
+# Api_Chatfuel — V1.0.43
+
+V1.0.43 permite seguir conversaciones que contestaron filtros y quedaron a
+medias. Con `FOLLOWUPS_INACTIVITY_ENABLED=true`, una nueva respuesta invalida
+los pendientes y los plazos de 1, 24 y 72 horas comienzan desde la siguiente
+pregunta entregada del bot. Consulta el historial nativo de Chatfuel cuando
+Wasapi no refleja las respuestas. Conserva bajas, citas, atención humana,
+evidencia de envíos e idempotencia. La activación y su fecha se configuran por
+separado; publicar código no activa envíos. Ver docs/SEGUIMIENTOS.md.
 
 V1.0.42 reconoce preguntas como «qué agenda tienen disponible» y abre la
 consulta sin crear una reserva. Una aceptación reciente de la invitación se

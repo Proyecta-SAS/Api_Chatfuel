@@ -39,7 +39,7 @@ export function readFollowupConfig(env = process.env) {
     } catch { missing.push(`FOLLOWUPS_${channel.toUpperCase()}_${hour}H_WEBHOOK_URL`); }
   }
   if (enabled && missing.length) throw new Error('FOLLOWUPS_CONFIGURATION_INCOMPLETE');
-  return { enabled, ready: missing.length === 0, missing, channels, webhooks, payload,
+  return { enabled, inactivity:env.FOLLOWUPS_INACTIVITY_ENABLED==='true', ready: missing.length === 0, missing, channels, webhooks, payload,
     enrollAfter: env.FOLLOWUPS_ENROLL_AFTER, apiKey: env.WASAPI_API_KEY,
     targetStage: env.FOLLOWUPS_TARGET_STAGE_ID || 'C370:UC_4N24TP', category: '370',
     contactPrefix:env.FOLLOWUPS_CHATFUEL_CONTACT_PREFIX,setterIds,acceptField:env.FOLLOWUPS_WEBHOOK_ACCEPT_FIELD,
@@ -49,7 +49,9 @@ export function readFollowupConfig(env = process.env) {
 export function cancellationReason(snapshot, lead, config) {
   if (!snapshot || snapshot.verified !== true) throw new Error('FOLLOWUP_STATE_UNVERIFIED');
   if (String(snapshot.id) !== String(lead.id) || normalizePhone(snapshot.phone) !== lead.phone) return 'identity_changed';
-  if (snapshot.incoming || snapshot.optOut) return 'customer_replied';
+  if (snapshot.optOut) return 'customer_replied';
+  if(config.inactivity && snapshot.activityVerified!==true)throw new Error('FOLLOWUP_ACTIVITY_UNVERIFIED');
+  if (snapshot.incoming && !config.inactivity) return 'customer_replied';
   if (snapshot.human || snapshot.appointment || snapshot.rejected) return 'protected_conversation';
   if (String(snapshot.category) !== config.category || snapshot.stage !== config.channels[lead.channel].stage) return 'crm_changed';
   if (String(snapshot.responsible) !== String(lead.responsible)) return 'responsible_changed';
