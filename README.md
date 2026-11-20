@@ -1,4 +1,6 @@
-# Api_Chatfuel — V1.0.43
+# Api_Chatfuel — V1.0.44
+
+V1.0.44 actualiza la identificación de salud de la versión de seguimientos.
 
 V1.0.43 permite seguir conversaciones que contestaron filtros y quedaron a
 medias. Con `FOLLOWUPS_INACTIVITY_ENABLED=true`, una nueva respuesta invalida
