@@ -1,3 +1,11 @@
+# V1.0.46 - 2026-11-23
+
+- Reconoce una negativa explícita dentro de mensajes de varias frases.
+- Detiene los seguimientos de DalIA y Chatfuel después del rechazo, incluso
+  si el cliente agradece o el bot responde posteriormente.
+- Mantiene las respuestas financieras y los cambios de horario separados
+  de la solicitud de detener el contacto.
+
 # V1.0.41 - 2026-11-18
 
 - Conserva el identificador de Wasapi y consulta el recibo del mensaje exacto.

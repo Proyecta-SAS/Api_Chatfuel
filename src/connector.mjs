@@ -3,8 +3,9 @@ import { FEEDBACK_HEADINGS, PROFILE_FEEDBACK_VERSION } from './calendar/profileS
 import { APPOINTMENT_DURATION_MINUTES, APPOINTMENT_DURATION_MS, APPOINTMENT_PREPARATION_REMINDER } from './calendar/policy.js';
 import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_POLICY_VERSION } from './calendar/rchEligibility.js';
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
+import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.45';
+export const RELEASE_VERSION = '1.0.46';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -1019,7 +1020,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       lastPromptAt:prompts[0]?.sentTime || null,
       incoming:conversation.messages.edges.some(e=>e.node.__typename.startsWith('WhatsAppIn')),
       appointment:yes(fields.bitrix_reserva_pendiente) || ['booking','confirmed','check_pending'].includes(state?.step),
-      rejected:evaluateRchEligibility(fields).status==='NO_APLICA',optOut:fields.seguimiento_detener==='si'};
+      rejected:evaluateRchEligibility(fields).status==='NO_APLICA',
+      optOut:fields.seguimiento_detener==='si' || incoming.some(m=>explicitOptOut(m.text))};
   };
   handle.stopFollowup = async contactId => {
     await handle.followupContext(contactId);

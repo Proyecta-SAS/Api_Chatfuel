@@ -5,7 +5,8 @@ const normalized = value => String(value || '').normalize('NFD').replace(/[\u030
   .trim().toLowerCase().replace(/[.!]+$/,'');
 
 export function explicitOptOut(value) {
-  return /^(?:(?:muchas )?gracias[,! .]*)?(?:no me interesa|no interesa|no quiero continuar|no quiero seguir|no quiero mas mensajes|no me escribas|no me escriban|no me contacten|dejen de escribirme|cancelar|baja|stop)(?:[,! .]*(?:gracias|por favor))?$/.test(normalized(value));
+  return normalized(value).split(/[.!?;\n]+/).some(sentence =>
+    /^(?:(?:muchas )?gracias[, ]*)?(?:no[, ]+gracias|no me interesa|no interesa|no quiero (?:continuar|seguir)(?: con (?:esto|el proceso|esta conversacion))?|no quiero mas mensajes|no me escribas|no me escriban|no me contacten|dejen de escribirme|cancelar|baja|stop)(?:[, ]*(?:gracias|por favor|por ahora))?$/.test(sentence.trim()));
 }
 
 export function conversationActivity(messages, native = {}, since) {
@@ -15,8 +16,10 @@ export function conversationActivity(messages, native = {}, since) {
     && ['delivered','read'].includes(m.status) && !m.error_code);
   const lastIncomingAt = latest([...incoming.map(m=>m.created_at),native.lastIncomingAt]);
   const lastPromptAt = latest([...prompts.map(m=>m.created_at),native.lastPromptAt]);
-  const lastText = incoming.find(m=>m.created_at===lastIncomingAt)?.message || native.lastIncomingText;
-  return {activityVerified:true,lastIncomingAt,lastPromptAt,optOut:explicitOptOut(lastText)};
+  // A later acknowledgement or bot reply must not erase a customer's withdrawal.
+  const optOut = incoming.some(m=>explicitOptOut(m.message)) || native.optOut===true
+    || time(native.lastIncomingAt)>=time(since) && explicitOptOut(native.lastIncomingText);
+  return {activityVerified:true,lastIncomingAt,lastPromptAt,optOut};
 }
 
 // Returns true when a new answer invalidates the old pending reminder. A new

@@ -89,3 +89,37 @@ test('actividad nativa cubre respuestas que Wasapi no refleja y las plantillas n
   assert.equal(explicitOptOut('No me interesa, gracias'),true);
   assert.equal(explicitOptOut('No me interesa aumentar mi cuota'),false);
 });
+
+for(const text of ['Eres una IA. No quiero continuar','No, gracias','No gracias',
+  'Gracias, no quiero seguir con el proceso','No quiero continuar con esto, gracias'])
+test(`reconoce la baja completa dentro del mensaje: ${text}`,()=>{
+  assert.equal(explicitOptOut(text),true);
+});
+
+for(const text of ['No','No tengo reportes negativos','No tengo crédito de vivienda',
+  'No me interesa aumentar mi cuota','No quiero continuar con ese horario',
+  'No gracias al banco, sigo interesado'])
+test(`no confunde una respuesta financiera ni un cambio de horario con una baja: ${text}`,()=>{
+  assert.equal(explicitOptOut(text),false);
+});
+
+test('la baja de Sandra cancela el ciclo aunque el bot haya respondido después',async()=>{
+  const f=fixture('DalIA');await f.service.enroll(f.lead);f.hour(2);
+  const activity=conversationActivity([
+    {type:'in',message:'Eres una IA. No quiero continuar',created_at:at(0.5)},
+    {type:'out',message_type:'text',status:'delivered',created_at:at(0.6)},
+    {type:'in',message:'Gracias',created_at:at(0.7)},
+    {type:'out',message_type:'text',status:'read',created_at:at(0.8)},
+  ],{},at(0));
+  f.change({...activity,incoming:true});await f.service.process(f.key);
+  assert.equal(f.sent.length,0);assert.equal(f.handed.length,0);
+  assert.equal(f.get().status,'cancelled');
+});
+
+test('una baja anterior al ingreso actual no se atribuye al nuevo ciclo',()=>{
+  const activity=conversationActivity([
+    {type:'in',message:'No quiero continuar',created_at:at(-1)},
+    {type:'in',message:'Sí, me interesa',created_at:at(1)},
+  ],{},at(0));
+  assert.equal(activity.optOut,false);
+});

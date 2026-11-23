@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import {createFollowupGateway} from '../src/followups/gateway.js';
 import {createHandler} from '../src/connector.mjs';
 
+test('el contexto nativo conserva la baja aunque luego el cliente agradezca',async()=>{
+  const id='wa_11_22_573001234567';
+  const handler=createHandler({env:{CHATFUEL_BOT_ID:'test',CHATFUEL_API_TOKEN:'test',CHATFUEL_BOOKING_SECRET:'s'.repeat(32)},
+    scheduling:{request:async()=>assert.fail('No reservar')},fetchImpl:async()=>Response.json({data:{bot:{
+      contact:{id,phone:'573001234567',attributes:[]},
+      conversation:{status:'automated',messages:{edges:[
+        {node:{id:'stop',__typename:'WhatsAppInTextMessage',text:'Eres una IA. No quiero continuar',sentTime:'2026-11-22T20:13:00Z'}},
+        {node:{id:'thanks',__typename:'WhatsAppInTextMessage',text:'Gracias',sentTime:'2026-11-22T20:14:00Z'}},
+      ]}},
+    }}})});
+  const context=await handler.followupContext(id);
+  assert.equal(context.lastIncomingText,'Gracias');assert.equal(context.optOut,true);
+});
+
 test('un HTTP 200 con error o sin aceptación explícita no confirma el envío',async()=>{
   for(const body of [{success:false},{error:'invalid_template'},{message:'unknown'}]){
     const gateway=createFollowupGateway({config:{acceptField:'success'},fetchImpl:async()=>Response.json(body)});
