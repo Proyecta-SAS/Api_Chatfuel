@@ -44,7 +44,10 @@ export function createFollowupStore(pool) {
     },
     async pending(at) {
       const [rows] = await pool.execute(`SELECT canal AS channel,telefono AS phone FROM chatfuel_seguimientos
-        WHERE JSON_UNQUOTE(JSON_EXTRACT(datos,'$.status')) IN ('waiting_initial','pending','awaiting_activity','delivery_pending','handoff_pending')
+        WHERE (JSON_UNQUOTE(JSON_EXTRACT(datos,'$.status')) IN ('waiting_initial','pending','awaiting_activity','delivery_pending','handoff_pending')
+          OR (JSON_UNQUOTE(JSON_EXTRACT(datos,'$.status'))='review'
+              AND JSON_UNQUOTE(JSON_EXTRACT(datos,'$.reason'))='delivery_unconfirmed'
+              AND JSON_EXTRACT(datos,CONCAT('$.steps."',JSON_UNQUOTE(JSON_EXTRACT(datos,'$.awaitingHour')),'".messageId')) IS NOT NULL))
           AND JSON_UNQUOTE(JSON_EXTRACT(datos,'$.nextDueAt'))<=?
         ORDER BY JSON_UNQUOTE(JSON_EXTRACT(datos,'$.nextDueAt')),actualizado_en LIMIT 20`,[at]);
       return rows;

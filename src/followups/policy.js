@@ -1,4 +1,5 @@
 import { phoneVariants } from '../phone.js';
+import { readContactWindow } from './contactWindow.js';
 
 export const HOURS = [1, 24, 72];
 export const BUTTONS = ['Sí, quiero saber', 'Sí, continuemos', 'Quiero retomar', 'Sí, me interesa'];
@@ -40,6 +41,7 @@ export function readFollowupConfig(env = process.env) {
   }
   if (enabled && missing.length) throw new Error('FOLLOWUPS_CONFIGURATION_INCOMPLETE');
   return { enabled, inactivity:env.FOLLOWUPS_INACTIVITY_ENABLED==='true', ready: missing.length === 0, missing, channels, webhooks, payload,
+    contactWindow:readContactWindow(env),
     enrollAfter: env.FOLLOWUPS_ENROLL_AFTER, apiKey: env.WASAPI_API_KEY,
     targetStage: env.FOLLOWUPS_TARGET_STAGE_ID || 'C370:UC_4N24TP', category: '370',
     contactPrefix:env.FOLLOWUPS_CHATFUEL_CONTACT_PREFIX,setterIds,acceptField:env.FOLLOWUPS_WEBHOOK_ACCEPT_FIELD,

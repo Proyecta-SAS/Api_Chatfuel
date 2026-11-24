@@ -7,6 +7,16 @@ estado real en `/followups/status` y conservar evidencia del corte de activació
 
 ## Programación y persistencia
 
+Desde V1.0.47 los envíos se permiten de 08:30 (inclusive) a 17:00 (exclusive),
+hora de Colombia, todos los días. Se puede configurar la franja mediante
+`FOLLOWUPS_SEND_FROM` y `FOLLOWUPS_SEND_UNTIL`. Fuera de la franja se conserva
+el pendiente hasta la siguiente apertura, sin acumular envíos vencidos.
+Las bajas, consultas de recibos y traslados confirmados siguen procesándose.
+Un recibo con ID que tarde más de quince minutos se vuelve a consultar cada
+quince minutos, sin repetir el envío. Un rechazo o un envío sin ID verificable
+continúa en revisión. Los descartes explícitos del historial nativo detienen
+los seguimientos aunque Fuely no haya guardado todavía ese dato del perfil.
+
 El observador descubre negociaciones nuevas de las cinco campañas conocidas en
 el embudo 370, posteriores a `FOLLOWUPS_ENROLL_AFTER`. Usa un cursor persistido
 por ID y conserva candidatos que todavía no tienen bienvenida entregada. No

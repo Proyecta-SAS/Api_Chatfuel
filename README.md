@@ -1,4 +1,10 @@
-# Api_Chatfuel — V1.0.45
+# Api_Chatfuel — V1.0.47
+
+V1.0.47 reconoce fechas y horas escritas al pedir agenda, sin reservar hasta
+la confirmación. Una conversación que falla no impide procesar las demás;
+la sincronización conserva el error y permite reintentar ese contacto.
+Los seguimientos revisan los descartes explícitos del historial, envían de
+08:30 a 17:00 en Colombia y concilian recibos tardíos sin repetir mensajes.
 
 V1.0.45 distingue la asignación automática de Wasapi de una atención humana y
 espera la bienvenida entregada antes de exigir una conversación nativa.

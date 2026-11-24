@@ -1,5 +1,6 @@
 import { HOURS, normalizePhone, cancellationReason, renderWebhookPayload } from './policy.js';
 import { refreshInactivity } from './activity.js';
+import { nextContactTime } from './contactWindow.js';
 
 export function createFollowupService({ config, store, gateway, now = () => Date.now() }) {
   let running = false;
@@ -28,6 +29,10 @@ export function createFollowupService({ config, store, gateway, now = () => Date
     if(!config.enabled || !config.ready)return;
     return store.withContact(key.channel,key.phone,async (record,save) => {
       if (!record) return;
+      // A late delivery receipt must still be reconciled. Never repeat the
+      // dispatch merely because the first confirmation timed out.
+      if(record.status==='review' && record.reason==='delivery_unconfirmed'
+        && record.steps?.[record.awaitingHour]?.messageId)return confirmDelivery(record,save);
       if(record.status==='delivery_pending')return confirmDelivery(record,save);
       if (record.status==='handoff_pending') return handoff(record,save);
       if(record.status==='waiting_initial'){
@@ -72,6 +77,10 @@ export function createFollowupService({ config, store, gateway, now = () => Date
       const freshReason = cancellationReason(checked,lead,config);
       if (freshReason) { record.status='cancelled'; record.reason=freshReason; await save(record); return; }
       if(config.inactivity && refreshInactivity(record,checked,now())){await save(record);return;}
+      const allowedAt=nextContactTime(now(),config.contactWindow);
+      if(allowedAt>now()){
+        record.nextDueAt=new Date(allowedAt).toISOString();await save(record);return;
+      }
       const key = `followup:${lead.channel}:${lead.phone}:${lead.id}:${hour}${config.inactivity?':'+anchor:''}`;
       const body = renderWebhookPayload(config.payload,{ phone:lead.phone, name:lead.name || '', channel:lead.channel,
         fromId:config.channels[lead.channel].fromId, dealId:lead.id, template:config.templates[lead.channel][hour], hours:hour, idempotencyKey:key });
@@ -107,11 +116,15 @@ export function createFollowupService({ config, store, gateway, now = () => Date
       await save(record);return;
     }
     if(result.status!=='delivered'){
-      if(now()-Date.parse(step.at)>=15*60000){record.status='review';record.reason='delivery_unconfirmed';}
+      if(now()-Date.parse(step.at)>=15*60000){
+        record.status='review';record.reason='delivery_unconfirmed';
+        record.nextDueAt=new Date(now()+15*60000).toISOString();
+      }
       else record.nextDueAt=new Date(now()+60000).toISOString();
       await save(record);return;
     }
     step.status='delivered';
+    delete record.reason;
     record.status=hour===72?'handoff_pending':'pending';
     record.nextDueAt=new Date(record.nextHour?Date.parse(record.anchorAt||record.lead.initialAt)+record.nextHour*3600000:now()).toISOString();
     await save(record);

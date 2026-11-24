@@ -43,6 +43,7 @@ function answer(text,field){
 
 function explicitProduct(text) {
   const t=normalize(text).replace(/[.!]+$/,'')
+    .replace(/^(?:ah[.! ,]*|perdon[.! ,]*|disculpa[.! ,]*)/,'').trim()
     .replace(/^(?:no senorita[.,]?\s*)?mi caso es que\s+/,'');
   if (/[?¿]/.test(t)) return null;
   // Do not reject somebody who has both a housing loan and another product,
@@ -50,7 +51,9 @@ function explicitProduct(text) {
   if (/\b(?:antes|anterior|tenia|tuve|tambien|ademas|otro|otra)\b/.test(t)) return null;
   if (/^(?:no\s+)?(?:disculpa\s+)?no es (?:un credito )?hipotecario$/.test(t)) return 'no hipotecario';
   if (/hipotec|vivienda|leasing/.test(t)) return null;
-  const product=t.match(/^(?:es\s+(?:un\s+credito\s+)?de\s+|(?:yo\s+)?tengo\s+(?:un\s+credito\s+de\s+|una?\s+)|mi credito es\s+(?:de\s+)?)(libranza|libre inversion|consumo|tarjeta de credito)\b/);
+  const product=t.match(/^(?:es\s+(?:un\s+(?:credito|prestamo)\s+)?de\s+|(?:yo\s+)?(?:lo\s+|le\s+)?tengo\s+(?:(?:un\s+)?(?:credito|prestamo)\s+de\s+|una?\s+|de\s+)|mi credito es\s+(?:de\s+)?)(libranza|libre inversion|consumo|tarjeta de credito|vehiculo)\b/);
+  if(/\b(?:no (?:tengo|he (?:hecho|tenido)|e (?:hecho|tenido)) (?:ningun |un )?(?:credito|prestamo)(?: con (?:un |el )?banco)?(?: nunca)?$|no tengo (?:un )?credito (?:de vivienda|hipotecario))\b/.test(t))return 'no hipotecario';
+  if(/^(?:yo\s+)?(?:quier[oe]|quisiera|necesito|busco|pretendo)\s+(?:realizar|solicitar|obtener|un)\s+(?:un\s+)?(?:nuevo\s+)?(?:credito|prestamo)(?:\s+nuevo)?\b/.test(t))return 'solicitud de credito nuevo';
   return product?.[1] || (/^(?:libranza|libre inversion|consumo|tarjeta de credito)$/.test(t)?t:null);
 }
 
@@ -71,7 +74,11 @@ export function reconcileQuestionnaireTimes(fields,messages=[]){
       for(const field of Object.keys(updates))delete updates[field];question=null;continue;
     }
     const product=explicitProduct(text);
-    if(product){updates.tipo_obligacion=product;updates.obligacion_vivienda_activa='no';}
+    if(product){
+      updates.tipo_obligacion=product;
+      // Requesting a new loan does not establish whether another housing loan exists.
+      if(product!=='solicitud de credito nuevo')updates.obligacion_vivienda_activa='no';
+    }
     else if(question){const value=answer(text,question);if(value!==null){updates[question]=value;if(question==='rch_banco')updates.banco_entidad=value;}}
     // Campaign greetings can be template nodes without readable question text.
     // Only an unambiguous standalone entity is recovered in that situation.

@@ -5,7 +5,7 @@ import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_PO
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.46';
+export const RELEASE_VERSION = '1.0.47';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -168,7 +168,7 @@ function requestsScheduleOptions(value) {
   const courtesy = '(?:(?:si+|claro|dale+|listo|bueno|por favor|porfa) )*';
   const intent = '(?:quiero|quisiera|necesito|deseo|me gustaria|me interesa|podemos|puedes|podrias)';
   const action = '(?:ver|revisar|consultar|conocer|buscar|mirar|elegir|coordinar)';
-  const command = '(?:dame|muestrame|revisemos|consultemos|veamos|busquemos|miramos|revisamos)';
+  const command = '(?:dame|dime|muestrame|revisemos|consultemos|veamos|busquemos|miramos|revisamos)';
   const target = '(?:(?:un|una|el|la|los|las|otro|otra|otros|otras|nuevo|nueva|nuevos|nuevas) ){0,2}'
     + '(?:horarios?|opciones(?: de horarios?)?|citas?|asesorias?|reuniones?)'
     + '(?: (?:disponibles?|libres?))?(?: para (?:una |mi )?(?:cita|asesoria|reunion))?';
@@ -192,7 +192,16 @@ function explicitBooking(value) {
 function availabilityAnswer(value) {
   const text=normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim();
   if(declineBooking(value)||/\b(?:no|nunca|tal vez|depende|solo si)\b/.test(text))return false;
-  return /(?:en|por) la (?:manana|tarde|noche)\b|^(?:manana|tarde|noche)[.!?]*$/.test(text);
+  return /(?:en|por) la (?:manana|tarde|noche)\b|^(?:manana|tarde|noche)[.!?]*$/.test(text)
+    || calendarPreference(value);
+}
+function calendarPreference(value) {
+  const text=normalize(value).replace(/[.,]/g,'').replace(/\s+/g,' ').trim();
+  if(/\b(?:no|nunca|tal vez|depende|solo si)\b/.test(text)||/[?¿]/.test(text))return false;
+  const days='(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|pasado manana)';
+  const months='(?:ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:tiembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)';
+  const date=`(?:${days}|\\d{1,2} (?:de )?${months})`;
+  return new RegExp(`^(?:(?:el|para|prefiero) )?${date}(?: (?:de )?20\\d{2})?(?: (?:a las? )?\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|h)?)?(?: por favor)?$`).test(text);
 }
 const nightPreference=value=>/\b(?:en|por) la noche\b|^noche[.!?]*$/.test(normalize(value).split(/\b(?:pero|bueno)\b/).at(-1).trim());
 const nightExplanation='Las asesorías se coordinan de lunes a viernes, entre las 8:30 a. m. y las 5:00 p. m., hora de Colombia. No tenemos horarios nocturnos; podemos revisar otro día 😊.';
@@ -313,7 +322,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   const handoffStatus = { enabled: env.HANDOFF_SYNC_ENABLED === 'true', connected: false,
     lastSyncAt: null, synchronized: 0, bookingFlowsStarted: 0, lastError: null,
     incomingRecoveryEnabled: env.INCOMING_RECOVERY_ENABLED === 'true', incomingRecovered: 0,
-    incomingRecoveryLastError: null, rejectionSyncLastError:null, ambiguousContacts:0 };
+    incomingRecoveryLastError: null, rejectionSyncLastError:null, ambiguousContacts:0,
+    contactErrors:0,lastContactError:null };
   let syncing = null;
   // Contact search can briefly return an old attribute snapshot after a write.
   // Keep successful writes locally too, and use a separate schema marker so an
@@ -538,6 +548,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       let after = null;
       let synchronized = 0;
       let ambiguousContacts = 0;
+      handoffStatus.contactErrors=0;handoffStatus.lastContactError=null;
       do {
         const data = await graphql(`query HandoffCandidates($botID:BotID!,$after:ContactSearchCursor,$names:[AttributeName!]){
           bot(id:$botID){contactChatsConnection(first:100,after:$after,assigneeFilter:{type:Any},unreadOnly:false,salesStageV2Filter:[]){
@@ -547,6 +558,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               ... on WhatsappContact{phone}}}pageInfo{hasNextPage endCursor}}}}`, { botID, after, names: ATTR });
         const page = data.bot.contactChatsConnection;
         for (const { node } of page.edges) {
+          try {
           if (!/^wa_\d+_\d+_\d{8,15}$/.test(node.id)) continue;
           const phone = String(node.phone ?? '').replace(/\D/g, '');
           if (!/^\d{8,15}$/.test(phone)) continue;
@@ -617,7 +629,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               && preceding?.__typename === 'WhatsAppOutTextMessage' && offersBooking(preceding.text);
             const requestedAvailability=availabilityAnswer(incoming.text)
               && preceding?.__typename==='WhatsAppOutTextMessage'
-              && (offersBooking(preceding.text)||asksBookingPeriod(preceding.text));
+              && (offersBooking(preceding.text)||asksBookingPeriod(preceding.text)
+                || calendarPreference(incoming.text) && /\b(?:cita|asesoria|agenda|horarios?)\b/.test(normalize(preceding.text)));
             const capturedIntent = yes(fields.solicitud_agendamiento) && fields.texto_solicitud_agendamiento
               && evidence(incoming.text) === evidence(fields.texto_solicitud_agendamiento);
             const repeatedAcceptance=confirmBooking(incoming.text)
@@ -672,9 +685,17 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           synchronizedProfiles.set(node.id, fingerprint);
           if (synchronizedProfiles.size > 5000) synchronizedProfiles.delete(synchronizedProfiles.keys().next().value);
           synchronized++;
+          } catch(error) {
+            // One stale/inaccessible conversation must not block appointment
+            // requests from every subsequent contact in the same page.
+            handoffStatus.contactErrors++;
+            const code=String(error.code||error.message||'CONTACT_SYNC_FAILED');
+            handoffStatus.lastContactError=/^[A-Z_]{1,64}$/.test(code)?code:'CONTACT_SYNC_FAILED';
+          }
         }
         after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
       } while (after);
+      if(handoffStatus.contactErrors)throw new Error('HANDOFF_CONTACTS_PENDING');
       handoffStatus.lastSyncAt = new Date(now()).toISOString();
       handoffStatus.synchronized += synchronized;
       handoffStatus.ambiguousContacts = ambiguousContacts;
@@ -1000,7 +1021,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       bot(id:$bot){contact(id:$id){id assignee{__typename ... on PublicUserAccount{accountType}} unhandledSwitchToHuman ... on WhatsappContact{phone} attributes(names:$names){attr{name} value{
         ... on BotAttributeValueString{stringValue} ... on BotAttributeValueBoolean{booleanValue} ... on BotAttributeValueDouble{doubleValue}}}}
         conversation(conversationID:$conversation){status messages(first:100){edges{node{id __typename sentTime sender{__typename}
-          ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{whatsappStatus}}}}}}}`,
+          ... on WhatsAppInTextMessage{text} ... on WhatsAppOutTextMessage{text whatsappStatus}}}}}}}`,
       {bot:botID,id:contactId,conversation:contactId,names:ATTR});
     const item=data.bot?.contact, conversation=data.bot?.conversation;
     if(!item || !conversation || !Array.isArray(conversation.messages?.edges))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
@@ -1009,6 +1030,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     if(phone!==contactId.split('_').at(-1))throw new Error('FOLLOWUP_CONTACT_UNVERIFIED');
     const state=decode(fields.bitrix_agenda_estado,contactId,{allowExpired:true});
     const messages=conversation.messages.edges.map(e=>e.node).sort((a,b)=>Date.parse(b.sentTime)-Date.parse(a.sentTime));
+    // Attribute extraction can lag behind the conversation. Derive the current
+    // rejection from explicit customer evidence without writing or reopening it.
+    Object.assign(fields,reconcileQuestionnaireTimes(fields,messages));
     const incoming=messages.filter(m=>m.__typename.startsWith('WhatsAppIn'));
     const prompts=messages.filter(m=>m.__typename==='WhatsAppOutTextMessage' && m.sender?.__typename==='AutomationMessageSender'
       && ['Read','Delivered','read','delivered'].includes(m.whatsappStatus));

@@ -166,6 +166,28 @@ test('un identificador ausente o una entrega no confirmada quedan en revisión',
   }
 });
 
+test('pospone envíos nocturnos y retoma al abrir la franja de Colombia',async()=>{
+  const f=fixture();await f.service.enroll(f.lead);
+  f.setHour(17);await f.service.process(f.key);
+  assert.equal(f.sent.length,0);
+  assert.equal(f.get().nextDueAt,'2026-11-19T13:30:00.000Z');
+  f.setHour(22.5);await f.service.process(f.key);
+  assert.equal(f.sent.length,1);
+});
+
+test('un recibo tardío de 72h completa el traslado sin repetir el mensaje',async()=>{
+  const f=fixture();await f.service.enroll(f.lead);f.setHour(72);
+  await f.service.process(f.key);
+  f.gateway.delivery=async()=>({status:'pending'});
+  await f.service.process(f.key);f.setHour(73);await f.service.process(f.key);
+  assert.equal(f.get().reason,'delivery_unconfirmed');
+  assert.equal(f.get().status,'review');
+  f.gateway.delivery=async()=>({status:'delivered'});
+  await f.service.process(f.key);await f.service.process(f.key);
+  assert.equal(f.sent.length,1);assert.equal(f.handed.length,1);
+  assert.equal(f.get().status,'completed');assert.equal(f.get().reason,undefined);
+});
+
 test('permite nombres de plantilla distintos para cada linea',()=>{
   const config=readFollowupConfig({...ENV,FOLLOWUPS_CHATFUEL_1H_TEMPLATE_NAME:'seguimiento_1h_chatfuel'});
   assert.equal(config.templates.Chatfuel[1],'seguimiento_1h_chatfuel');

@@ -25,6 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', naturalAssignee = 'FuelyAIAssignee', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
+  inaccessibleEarlierContact = false,
   database = null, stagePending = false, resolveError = null, resolveErrorCode = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
@@ -44,11 +45,12 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
         conversationFinishSendToFlow: { id: CONTACT, status: 'closed' },
       } });
       if (payload.query.includes('query HandoffCandidates')) return Response.json({ data: { bot: { contactChatsConnection: {
-        edges: [{ node: { id: CONTACT, name: 'Perfil WhatsApp de prueba', phone: '573000000001',
+          edges: [...(inaccessibleEarlierContact?[{node:{id:'wa_999999999999_888888888888_573000000002',phone:'573000000002',assignee:{__typename:'PublicUserAccount',accountType:'Human'},attributes:[]}}]:[]),{ node: { id: CONTACT, name: 'Perfil WhatsApp de prueba', phone: '573000000001',
           assignee: human === 'shared' ? null : human ? { __typename: 'PublicUserAccount', accountType: 'Human' } : { __typename: 'FuelyAIAssignee' },
           attributes: Object.entries(staleHandoffIndex ? initialSearchFields : fields).map(([name, value]) => ({ attr: { name }, value: { stringValue: String(value) } })),
         } }], pageInfo: { hasNextPage: false, endCursor: null },
       } } } });
+      if(payload.query.includes('query HandoffState')&&payload.variables.id?.endsWith('000002'))throw new Error('CHATFUEL_UNAVAILABLE');
       if (payload.query.includes('query HandoffState')) return Response.json({ data: { bot: {
         conversation: { status: live ? 'open' : 'closed' },
       } } });
@@ -1202,4 +1204,19 @@ test('una opción antigua de diez minutos exige horarios y confirmación nuevos'
     await f.request('step','1');assert.equal(f.bookings().length,0);
     assert.match((await f.request('step','sí')).message,/Duración: 30 minutos/);
   }
+});
+
+for(const latestText of ['25 nov 9am','viernes a las 12:30 pm','Dime horario'])
+test('abre agenda ante la preferencia del cliente: '+latestText,async()=>{
+ const f=fixture({latestText,previousReply:'Con gusto. Revisemos los horarios para tu cita',initial:{'last user freeform input':latestText}});
+ await f.handle.synchronizeHandoffs();
+ assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+ assert.equal(f.bookings().length,0);
+});
+test('un contacto inaccesible no impide abrir la agenda del siguiente cliente',async()=>{
+ const f=fixture({inaccessibleEarlierContact:true,initial:{'last user freeform input':'Quiero agendar'}});
+ await assert.rejects(f.handle.synchronizeHandoffs(),/HANDOFF_CONTACTS_PENDING/);
+ assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+ assert.equal(f.handle.handoffStatus.contactErrors,1);
+ assert.equal(f.handle.handoffStatus.lastError,'HANDOFF_SYNC_FAILED');
 });
