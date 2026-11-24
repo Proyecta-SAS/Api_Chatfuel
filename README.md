@@ -1,4 +1,8 @@
-# Api_Chatfuel — V1.0.47
+# Api_Chatfuel — V1.0.48
+
+V1.0.48 omite en el observador las negociaciones trasladadas a otro embudo,
+verificando su ID y teléfono en Bitrix. Conserva las protecciones de agenda
+y no modifica el embudo ni la atención comercial.
 
 V1.0.47 reconoce fechas y horas escritas al pedir agenda, sin reservar hasta
 la confirmación. Una conversación que falla no impide procesar las demás;

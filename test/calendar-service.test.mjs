@@ -655,3 +655,13 @@ test('recupera una cita antigua de diez minutos sin ampliarla ni crear otra',asy
   await assert.rejects(f.service.book(code,old,'new-ten'),/INVALID_START/);
   assert.equal(f.events.length,0);
 });
+
+test('clasifica un traslado comercial solo con negociación y teléfono verificados',async()=>{
+ const f=fixture();
+ assert.equal(await f.service.isTransferredClient('573000000001'),false);
+ f.category='8';assert.equal(await f.service.isTransferredClient('573000000001'),true);
+ assert.equal(f.calls.filter(c=>c.method==='crm.deal.update').length,0);
+ f.dealPhone='573009998877';
+ await assert.rejects(f.service.isTransferredClient('573000000001'),/FEEDBACK_PHONE_CHANGED/);
+ f.registered=null;assert.equal(await f.service.isTransferredClient('573000000001'),false);
+});

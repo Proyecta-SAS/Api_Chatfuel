@@ -367,6 +367,16 @@ export function createSchedulingService({ database, bitrix, calendar = bitrix, a
   }
   return {
     availability, book, resolve, upsert, syncCrm, syncAppointmentFeedback,
+    async isTransferredClient(phone) {
+      const registered=await database.findClienteByPhone(phone);
+      if(!registered)return false;
+      const id=String(registered.id_negociacion);
+      const current=await bitrix.call('crm.deal.get',{id});
+      if(String(current.ID)!==id)fail('INVALID_BITRIX_DEAL');
+      const actual=String(current[CLIENT_PHONE_FIELD]||'').replace(/\D/g,'');
+      if(!actual || !phoneVariants(phone).includes(actual))fail('FEEDBACK_PHONE_CHANGED');
+      return String(current.CATEGORY_ID)!=='370';
+    },
     async findRegisteredClient(phone){return (await registeredClient(phone)).client;},
     async getBookingState({appointmentId,key,clientCode}) {
       const row = appointmentId ? await store.getAppointment(appointmentId) : key ? await store.getByKey(key) : null;

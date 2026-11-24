@@ -5,7 +5,7 @@ import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_PO
 import { reconcileQuestionnaireTimes } from './calendar/confirmedAnswers.js';
 import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.47';
+export const RELEASE_VERSION = '1.0.48';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -323,7 +323,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     lastSyncAt: null, synchronized: 0, bookingFlowsStarted: 0, lastError: null,
     incomingRecoveryEnabled: env.INCOMING_RECOVERY_ENABLED === 'true', incomingRecovered: 0,
     incomingRecoveryLastError: null, rejectionSyncLastError:null, ambiguousContacts:0,
-    contactErrors:0,lastContactError:null };
+    contactErrors:0,lastContactError:null,transferredContacts:0 };
   let syncing = null;
   // Contact search can briefly return an old attribute snapshot after a write.
   // Keep successful writes locally too, and use a separate schema marker so an
@@ -548,7 +548,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       let after = null;
       let synchronized = 0;
       let ambiguousContacts = 0;
-      handoffStatus.contactErrors=0;handoffStatus.lastContactError=null;
+      handoffStatus.contactErrors=0;handoffStatus.lastContactError=null;handoffStatus.transferredContacts=0;
       do {
         const data = await graphql(`query HandoffCandidates($botID:BotID!,$after:ContactSearchCursor,$names:[AttributeName!]){
           bot(id:$botID){contactChatsConnection(first:100,after:$after,assigneeFilter:{type:Any},unreadOnly:false,salesStageV2Filter:[]){
@@ -558,9 +558,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               ... on WhatsappContact{phone}}}pageInfo{hasNextPage endCursor}}}}`, { botID, after, names: ATTR });
         const page = data.bot.contactChatsConnection;
         for (const { node } of page.edges) {
+          const phone = String(node.phone ?? '').replace(/\D/g, '');
           try {
           if (!/^wa_\d+_\d+_\d{8,15}$/.test(node.id)) continue;
-          const phone = String(node.phone ?? '').replace(/\D/g, '');
           if (!/^\d{8,15}$/.test(phone)) continue;
           let fields = attributeMap(node.attributes);
           // Use the same customer-confirmed evidence as the booking gate. A
@@ -590,6 +590,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
               synchronized++;
               handoffStatus.rejectionSyncLastError = null;
             } catch (error) {
+              if(error.code==='INVALID_BITRIX_DEAL' && await scheduling.isTransferredClient?.(phone)){
+                handoffStatus.transferredContacts++;continue;
+              }
               if (error.code === 'TELEFONO_AMBIGUO') ambiguousContacts++;
               else handoffStatus.rejectionSyncLastError = 'REJECTION_SYNC_FAILED';
             }
@@ -686,6 +689,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           if (synchronizedProfiles.size > 5000) synchronizedProfiles.delete(synchronizedProfiles.keys().next().value);
           synchronized++;
           } catch(error) {
+            if(error.code==='INVALID_BITRIX_DEAL' && await scheduling.isTransferredClient?.(phone)){
+              handoffStatus.transferredContacts++;continue;
+            }
             // One stale/inaccessible conversation must not block appointment
             // requests from every subsequent contact in the same page.
             handoffStatus.contactErrors++;

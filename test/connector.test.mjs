@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', naturalAssignee = 'FuelyAIAssignee', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  inaccessibleEarlierContact = false,
+  inaccessibleEarlierContact = false, transferredEarlierContact = false,
   database = null, stagePending = false, resolveError = null, resolveErrorCode = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
@@ -50,7 +50,9 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
           attributes: Object.entries(staleHandoffIndex ? initialSearchFields : fields).map(([name, value]) => ({ attr: { name }, value: { stringValue: String(value) } })),
         } }], pageInfo: { hasNextPage: false, endCursor: null },
       } } } });
-      if(payload.query.includes('query HandoffState')&&payload.variables.id?.endsWith('000002'))throw new Error('CHATFUEL_UNAVAILABLE');
+      if(payload.query.includes('query HandoffState')&&payload.variables.id?.endsWith('000002'))throw Object.assign(
+        new Error(transferredEarlierContact?'INVALID_BITRIX_DEAL':'CHATFUEL_UNAVAILABLE'),
+        {code:transferredEarlierContact?'INVALID_BITRIX_DEAL':'CHATFUEL_UNAVAILABLE'});
       if (payload.query.includes('query HandoffState')) return Response.json({ data: { bot: {
         conversation: { status: live ? 'open' : 'closed' },
       } } });
@@ -99,7 +101,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
     throw new Error(`Unexpected mocked endpoint: ${url}`);
   };
   const handle = createHandler({ env: { CHATFUEL_BOT_ID: 'mock-bot', CHATFUEL_BOOKING_SECRET: SECRET,
-    CHATFUEL_API_TOKEN: 'mock-chatfuel-token', CHATFUEL_BOOKING_FLOW_ID: 'mock-flow' }, fetchImpl: mockFetch, now: () => time, database, scheduling: { request: async (path, body, key) => {
+    CHATFUEL_API_TOKEN: 'mock-chatfuel-token', CHATFUEL_BOOKING_FLOW_ID: 'mock-flow' }, fetchImpl: mockFetch, now: () => time, database, scheduling: { isTransferredClient:async phone=>transferredEarlierContact && phone==='573000000002', request: async (path, body, key) => {
       if(resolveErrorCode && path.endsWith('/leads/resolve'))throw Object.assign(new Error(resolveErrorCode),{code:resolveErrorCode,retryable:false});
       const response = await mockFetch('local:' + path, { body: JSON.stringify(body), headers: { 'Idempotency-Key': key } });
       const result = await response.json();
@@ -1219,4 +1221,14 @@ test('un contacto inaccesible no impide abrir la agenda del siguiente cliente',a
  assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
  assert.equal(f.handle.handoffStatus.contactErrors,1);
  assert.equal(f.handle.handoffStatus.lastError,'HANDOFF_SYNC_FAILED');
+});
+
+test('un traslado comercial verificado se omite sin detener la sincronización',async()=>{
+ const f=fixture({inaccessibleEarlierContact:true,transferredEarlierContact:true,initial:{'last user freeform input':'Quiero agendar'}});
+ await f.handle.synchronizeHandoffs();
+ assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
+ assert.equal(f.handle.handoffStatus.transferredContacts,1);
+ assert.equal(f.handle.handoffStatus.contactErrors,0);
+ assert.equal(f.handle.handoffStatus.lastError,null);
+ assert.ok(f.handle.handoffStatus.lastSyncAt);
 });
