@@ -1,4 +1,10 @@
-# Api_Chatfuel — V1.0.50
+# Api_Chatfuel — V1.0.51
+
+V1.0.51 conserva el banco cuando un segundo mensaje aclara el producto y
+recupera las respuestas numéricas a preguntas de confirmación del plazo y
+tiempo pagando. Las llamadas de envío a AtlasFlow esperan hasta treinta
+segundos para no perder recibos que lleguen después de diez segundos;
+conserva la prohibición de repetir envíos inciertos.
 
 V1.0.50 conserva la propiedad de conversaciones asignadas a otra aplicación:
 el observador las omite, sin convertirlas en una asignación humana ni intentar

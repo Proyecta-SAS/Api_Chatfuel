@@ -5,7 +5,7 @@ import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_PO
 import { reconcileQuestionnaireTimes, conversationScopeClosed } from './calendar/confirmedAnswers.js';
 import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.50';
+export const RELEASE_VERSION = '1.0.51';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',

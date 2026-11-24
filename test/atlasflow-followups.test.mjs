@@ -48,3 +48,18 @@ test('identifica un único recibo y verifica remitente y destinatario',()=>{
   result.respuesta.logs.push({...result.respuesta.logs[0],id:901});
   assert.equal(atlasflowReceipt(result,context),null);
 });
+
+test('AtlasFlow waits for a delayed accepted receipt without a second dispatch',async t=>{
+  let deadline,sends=0;
+  t.mock.method(AbortSignal,'timeout',ms=>{deadline=ms;return new AbortController().signal;});
+  const gateway=createFollowupGateway({config:{},fetchImpl:async()=>{
+    sends++;
+    // The production incident completed after 10 seconds. A receiver completing
+    // at 12 seconds must still return its ID under the dispatch deadline.
+    if(deadline<12000)throw new DOMException('Timeout','TimeoutError');
+    return Response.json({status:'ok',respuesta:{sent:1,not_sent:0,
+      logs:[{id:900,success:true,from_id:25152,recipient:context.phone}]}});
+  }});
+  assert.deepEqual(await gateway.send({url,body:{},key:'slow-receipt',context}),{accepted:true,messageId:'900'});
+  assert.equal(sends,1);assert.equal(deadline,30000);
+});

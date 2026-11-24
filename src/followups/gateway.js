@@ -85,7 +85,7 @@ export function createFollowupGateway({config,bitrix,bookingHandler,fetchImpl=fe
       const atlas=isAtlasflowWebhook(url);
       if(atlas){const request=atlasflowRequest(url,context);url=request.url;body=request.body;}
       const response=await fetchImpl(url,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},
-        body:JSON.stringify(body),signal:AbortSignal.timeout(10000),redirect:'error'});
+        body:JSON.stringify(body),signal:AbortSignal.timeout(atlas?30000:10000),redirect:'error'});
       if(!response.ok)throw new Error('FOLLOWUP_DISPATCH_UNCERTAIN');
       const result=await response.json();
       if(atlas){

@@ -22,8 +22,8 @@ function questionField(text){
   if(/(?:con que|cual).*banco|(?:banco|entidad).*credito/.test(t))return 'rch_banco';
   if(/reportes? negativos?/.test(t))return 'rch_reportes_negativos';
   if(/aument(?:ar|ando).*cuota/.test(t))return 'rch_puede_aumentar_cuota';
-  if(/(?:plazo\s+(?:original|inicial)|anos.*(?:tomaste|adquiriste|originalmente))/.test(t))return 'rch_plazo_inicial';
-  if(/(?:cuanto tiempo|hace cuanto|cuantos anos).*pagando/.test(t))return 'rch_tiempo_pagando';
+  if(/(?:plazo\s+(?:original|inicial)|anos.*(?:tomaste|adquiriste|originalmente)|(?:credito|prestamo).*fue (?:tomado|adquirido) a \d+ anos?)/.test(t))return 'rch_plazo_inicial';
+  if(/(?:cuanto tiempo|hace cuanto|cuantos anos).*pagando|\bllevas\b.*\bpagando\b/.test(t))return 'rch_tiempo_pagando';
   return null;
 }
 function answer(text,field){
@@ -31,6 +31,9 @@ function answer(text,field){
   if(field==='rch_banco'){
     const bank=String(text).trim();
     if(!bank||bank.length>180||/\b(?:agend|reserv|asesor|empez|reinici)/.test(normalize(bank)))return null;
+    // A consecutive product clarification is not a correction of the bank
+    // the customer just named (for example FNA, then "Crédito hipotecario").
+    if(/^(?:(?:es|tengo) (?:un |el )?)?(?:credito (?:hipotecario|de vivienda|de consumo|de libre inversion)|leasing habitacional|prestamo de libranza)[.!]*$/.test(normalize(bank)))return null;
     if(/^(?:si+|no+|claro|gracias|ok|dale+|listo|genial)[.!]*$/.test(normalize(bank)))return null;
     return /^(?:no se|no recuerdo|no sabe)$/.test(normalize(bank))?'desconocido':bank;
   }
