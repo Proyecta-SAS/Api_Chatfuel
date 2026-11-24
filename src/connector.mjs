@@ -5,7 +5,7 @@ import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_PO
 import { reconcileQuestionnaireTimes, conversationScopeClosed } from './calendar/confirmedAnswers.js';
 import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.49';
+export const RELEASE_VERSION = '1.0.50';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -323,7 +323,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     lastSyncAt: null, synchronized: 0, bookingFlowsStarted: 0, lastError: null,
     incomingRecoveryEnabled: env.INCOMING_RECOVERY_ENABLED === 'true', incomingRecovered: 0,
     incomingRecoveryLastError: null, rejectionSyncLastError:null, ambiguousContacts:0,
-    contactErrors:0,lastContactError:null,transferredContacts:0 };
+    contactErrors:0,lastContactError:null,transferredContacts:0,externalContacts:0 };
   let syncing = null;
   // Contact search can briefly return an old attribute snapshot after a write.
   // Keep successful writes locally too, and use a separate schema marker so an
@@ -548,7 +548,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       let after = null;
       let synchronized = 0;
       let ambiguousContacts = 0;
-      handoffStatus.contactErrors=0;handoffStatus.lastContactError=null;handoffStatus.transferredContacts=0;
+      handoffStatus.contactErrors=0;handoffStatus.lastContactError=null;handoffStatus.transferredContacts=0;handoffStatus.externalContacts=0;
       do {
         const data = await graphql(`query HandoffCandidates($botID:BotID!,$after:ContactSearchCursor,$names:[AttributeName!]){
           bot(id:$botID){contactChatsConnection(first:100,after:$after,assigneeFilter:{type:Any},unreadOnly:false,salesStageV2Filter:[]){
@@ -561,6 +561,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           const phone = String(node.phone ?? '').replace(/\D/g, '');
           try {
           if (!/^wa_\d+_\d+_\d{8,15}$/.test(node.id)) continue;
+          if(node.assignee?.__typename==='ExternalAppAssignee'){
+            handoffStatus.externalContacts++;continue;
+          }
           if (!/^\d{8,15}$/.test(phone)) continue;
           let fields = attributeMap(node.attributes);
           // Use the same customer-confirmed evidence as the booking gate. A

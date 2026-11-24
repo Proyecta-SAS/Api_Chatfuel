@@ -25,7 +25,7 @@ const SLOTS = [
 function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   human = false, live = true, failLead = false, latestText = 'Sí, quiero agendar una llamada',
   naturalStatus = 'closed', naturalAssignee = 'FuelyAIAssignee', botReplied = true, staleHandoffIndex = false, previousReply = '', olderMessages = [], availabilitySlots = SLOTS,
-  inaccessibleEarlierContact = false, transferredEarlierContact = false,
+  inaccessibleEarlierContact = false, transferredEarlierContact = false, externalEarlierContact = false,
   database = null, stagePending = false, resolveError = null, resolveErrorCode = null, availabilityErrors = [], bookingMessages = [], bookingBarrier = null, incomingSentTime = new Date(START).toISOString() } = {}) {
   const fields = { nombre_completo: 'Persona de Prueba', ciudad_municipio: 'Bogotá',
     obligacion_vivienda_activa: 'si',rch_banco:'Bancolombia',rch_reportes_negativos:'no',rch_puede_aumentar_cuota:'si',
@@ -45,7 +45,7 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
         conversationFinishSendToFlow: { id: CONTACT, status: 'closed' },
       } });
       if (payload.query.includes('query HandoffCandidates')) return Response.json({ data: { bot: { contactChatsConnection: {
-          edges: [...(inaccessibleEarlierContact?[{node:{id:'wa_999999999999_888888888888_573000000002',phone:'573000000002',assignee:{__typename:'PublicUserAccount',accountType:'Human'},attributes:[]}}]:[]),{ node: { id: CONTACT, name: 'Perfil WhatsApp de prueba', phone: '573000000001',
+          edges: [...(inaccessibleEarlierContact||externalEarlierContact?[{node:{id:'wa_999999999999_888888888888_573000000002',phone:'573000000002',assignee:externalEarlierContact?{__typename:'ExternalAppAssignee'}:{__typename:'PublicUserAccount',accountType:'Human'},attributes:[]}}]:[]),{ node: { id: CONTACT, name: 'Perfil WhatsApp de prueba', phone: '573000000001',
           assignee: human === 'shared' ? null : human ? { __typename: 'PublicUserAccount', accountType: 'Human' } : { __typename: 'FuelyAIAssignee' },
           attributes: Object.entries(staleHandoffIndex ? initialSearchFields : fields).map(([name, value]) => ({ attr: { name }, value: { stringValue: String(value) } })),
         } }], pageInfo: { hasNextPage: false, endCursor: null },
@@ -1231,4 +1231,13 @@ test('un traslado comercial verificado se omite sin detener la sincronización',
  assert.equal(f.handle.handoffStatus.contactErrors,0);
  assert.equal(f.handle.handoffStatus.lastError,null);
  assert.ok(f.handle.handoffStatus.lastSyncAt);
+});
+
+test('el observador respeta conversaciones controladas por otra aplicación',async()=>{
+ const f=fixture({externalEarlierContact:true,initial:{'last user freeform input':'Quiero agendar'}});
+ await f.handle.synchronizeHandoffs();
+ assert.equal(f.handle.handoffStatus.externalContacts,1);
+ assert.equal(f.handle.handoffStatus.contactErrors,0);
+ assert.equal(f.calls.filter(c=>c.payload.query?.includes('query BookingContact')&&c.payload.variables.id.endsWith('000002')).length,0);
+ assert.equal(f.calls.filter(c=>c.payload.query?.includes('mutation NaturalBookingFlow')).length,1);
 });

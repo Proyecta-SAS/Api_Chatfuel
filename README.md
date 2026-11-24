@@ -1,4 +1,8 @@
-# Api_Chatfuel — V1.0.49
+# Api_Chatfuel — V1.0.50
+
+V1.0.50 conserva la propiedad de conversaciones asignadas a otra aplicación:
+el observador las omite, sin convertirlas en una asignación humana ni intentar
+iniciar flujos o modificar sus atributos.
 
 V1.0.49 detiene recordatorios cuando el bot ya comunicó un cierre por alcance,
 sin convertir el texto del bot en datos financieros del cliente. Una pregunta
