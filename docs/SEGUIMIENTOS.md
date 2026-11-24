@@ -7,6 +7,11 @@ estado real en `/followups/status` y conservar evidencia del corte de activació
 
 ## Programación y persistencia
 
+Desde V1.0.49 también se detiene el seguimiento cuando el bot ya comunicó que
+no puede continuar el perfilamiento por alcance. Este es un cierre operativo;
+no añade ni modifica hechos financieros del cliente. Una pregunta posterior
+de perfilamiento invalida ese cierre anterior para volver a evaluar el caso.
+
 Desde V1.0.47 los envíos se permiten de 08:30 (inclusive) a 17:00 (exclusive),
 hora de Colombia, todos los días. Se puede configurar la franja mediante
 `FOLLOWUPS_SEND_FROM` y `FOLLOWUPS_SEND_UNTIL`. Fuera de la franja se conserva

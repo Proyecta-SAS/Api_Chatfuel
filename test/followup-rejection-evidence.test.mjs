@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {reconcileQuestionnaireTimes} from '../src/calendar/confirmedAnswers.js';
+import {reconcileQuestionnaireTimes,conversationScopeClosed} from '../src/calendar/confirmedAnswers.js';
 import {evaluateRchEligibility} from '../src/calendar/rchEligibility.js';
 import {createHandler} from '../src/connector.mjs';
 for(const text of ['Ah... yo le tengo de libre inversion','Es un préstamo de libranza','Quiero realizar un crédito',
@@ -22,4 +22,13 @@ test('el seguimiento utiliza la libranza declarada aunque Fuely no guarde atribu
   ]}}}}});
  }});
  assert.equal((await handle.followupContext(id)).rejected,true);assert.equal(writes,0);
+});
+
+test('un cierre comunicado por el bot detiene seguimientos sin inferir datos financieros',()=>{
+ const bot=text=>({__typename:'WhatsAppOutTextMessage',sender:{__typename:'AutomationMessageSender'},text});
+ const closed=bot('Según lo que me contaste, tu caso no corresponde a crédito de vivienda ni leasing habitacional activo. Este canal no puede continuar ese perfilamiento.');
+ assert.equal(conversationScopeClosed([bot('La tasa debes consultarla con tu banco.'),closed]),true);
+ assert.equal(conversationScopeClosed([bot('¿Con qué banco tienes el crédito?'),closed]),false);
+ assert.equal(conversationScopeClosed([{...closed,__typename:'WhatsAppInTextMessage'}]),false);
+ assert.equal(conversationScopeClosed([{...closed,sender:{__typename:'ExternalAppSender'}}]),false);
 });

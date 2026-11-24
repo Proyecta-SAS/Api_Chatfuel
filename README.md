@@ -1,4 +1,8 @@
-# Api_Chatfuel — V1.0.48
+# Api_Chatfuel — V1.0.49
+
+V1.0.49 detiene recordatorios cuando el bot ya comunicó un cierre por alcance,
+sin convertir el texto del bot en datos financieros del cliente. Una pregunta
+posterior de perfilamiento vuelve a evaluar el estado de la conversación.
 
 V1.0.48 omite en el observador las negociaciones trasladadas a otro embudo,
 verificando su ID y teléfono en Bitrix. Conserva las protecciones de agenda

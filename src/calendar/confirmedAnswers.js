@@ -1,6 +1,19 @@
 import { durationMonths } from './rchEligibility.js';
 const normalize=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 
+// Operational closure only: do not infer a customer's financial attributes
+// from the assistant's text. A later profiling question reopens this state.
+export function conversationScopeClosed(messages=[]){
+  for(const m of messages){
+    if(m.__typename!=='WhatsAppOutTextMessage')continue;
+    if(m.sender?.__typename!=='AutomationMessageSender')continue;
+    const text=normalize(m.text);
+    if(/\b(?:tu caso no corresponde a credito de vivienda|este canal no puede (?:continuar ese perfilamiento|perfilar ese caso)|en ese caso,? no corresponde a este canal)\b/.test(text))return true;
+    if(questionField(m.text||'') || /\b(?:felicitaciones.*aplicas|tu cita.*quedo agendada|confirmas.*reserv)/.test(text))return false;
+  }
+  return false;
+}
+
 function questionField(text){
   if(!/[?¿]/.test(text))return null;
   // An acknowledgement can mention the original term before asking time paid.
