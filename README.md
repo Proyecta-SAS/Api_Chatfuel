@@ -1,4 +1,14 @@
-# Api_Chatfuel — V1.0.51
+# Api_Chatfuel — V1.0.52
+
+V1.0.52 agenda en un paso: al aceptar la cita ofrece en texto hasta ocho
+horarios reales, primero de las próximas 48 horas, agrupados por día y por
+mañana/tarde, siempre en formato de 12 horas («2:00 p. m.»). Si no hay espacio
+en 48 horas muestra los siguientes disponibles. No vuelve a pedir nombre
+(lo toma del CRM), ciudad ni si el crédito está vigente cuando el perfil ya
+aplica. Reconoce días escritos como «Jueves 26», pide confirmar antes de
+reservar y, si no entiende dos veces, pasa a un asesor en lugar de repetir la
+pregunta. La confirmación final es un solo mensaje sin variables vacías. Los
+estados de conversación anteriores (franja → día → hora) siguen reanudándose.
 
 V1.0.51 conserva el banco cuando un segundo mensaje aclara el producto y
 recupera las respuestas numéricas a preguntas de confirmación del plazo y

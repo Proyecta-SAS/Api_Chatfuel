@@ -570,15 +570,14 @@ test('Chatfuel recorre la agenda propia completa sin HTTP hacia otro CRM',async(
     const result=await handler(new Request('http://localhost/booking',{method:'POST',headers:{Authorization:`Bearer ${secret}`},body:JSON.stringify({contactId:id,operation})}));
     return result.json();
   }
-  assert.match((await step('start')).message,/mañana/);
-  turnNow+=2*60*60_000;f.advance(2*60*60_000);
-  await step('step','mañana');await step('step','1');
+  // Agenda en un paso: la lista vencida se refresca y nunca reserva sin elegir y confirmar.
+  assert.match((await step('start')).message,/horarios disponibles/);
   turnNow+=31*60_000;f.advance(31*60_000);
-  assert.match((await step('step','1')).message,/horarios libres/);
-  assert.match((await step('step','1')).message,/Confirmas/);
+  assert.match((await step('step','1')).message,/horarios disponibles/);
+  assert.match((await step('step','1')).message,/Confirmamos tu asesoría/);
   assert.equal(f.events.length,0);
   turnNow+=31*60_000;f.advance(31*60_000);
-  assert.match((await step('step','sí')).message,/horarios libres/);
+  assert.match((await step('step','sí')).message,/horarios disponibles/);
   assert.equal(f.events.length,0);
   await step('step','1');
   const result=await step('step','sí');

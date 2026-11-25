@@ -5,7 +5,7 @@ import { evaluateRchEligibility, eligibilityMessage, RCH_QUESTION_FIELDS, RCH_PO
 import { reconcileQuestionnaireTimes, conversationScopeClosed } from './calendar/confirmedAnswers.js';
 import { explicitOptOut } from './followups/activity.js';
 
-export const RELEASE_VERSION = '1.0.51';
+export const RELEASE_VERSION = '1.0.52';
 const NATURAL_BOOKING_REPLY_WAIT_MS = 10_000;
 
 const ATTR = [...RCH_QUESTION_FIELDS, 'rch_estado_elegibilidad','rch_motivo_elegibilidad','rch_meses_restantes','rch_eligibilidad_version',
@@ -262,18 +262,53 @@ function spreadSlots(slots) {
     .sort((left, right) => Math.abs(Date.parse(left.startAt) - midpoint) - Math.abs(Date.parse(right.startAt) - midpoint))[0];
   return middle ? [first, middle, last] : [first, last];
 }
+// Hasta ocho opciones reales repartidas por día y franja (mañana/tarde): dentro
+// de cada franja se separan al menos una cita más diez minutos y se priorizan
+// inicio, final y mitad; luego se alternan las franjas en orden cronológico.
+function selectEightSlots(slots, limit = 8) {
+  const ordered = [...new Map(slots.map(slot => [Date.parse(slot.startAt), slot])).values()]
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+  const separation = APPOINTMENT_DURATION_MS + 10 * 60_000;
+  const buckets = new Map();
+  for (const slot of ordered) {
+    const key = `${dateAt(slot.startAt)}|${Number(timeAt(slot.startAt).slice(0, 2)) < 12 ? 'am' : 'pm'}`;
+    const bucket = buckets.get(key) || [];
+    if (!bucket.length || Date.parse(slot.startAt) - Date.parse(bucket.at(-1).startAt) >= separation) bucket.push(slot);
+    buckets.set(key, bucket);
+  }
+  const queues = [...buckets.values()].map(bucket =>
+    [...new Set([bucket[0], bucket.at(-1), bucket[Math.floor((bucket.length - 1) / 2)], ...bucket])]);
+  const selected = [];
+  for (let round = 0; selected.length < limit && queues.some(queue => queue.length > round); round++) {
+    for (const queue of queues) if (queue[round] && selected.length < limit) selected.push(queue[round]);
+  }
+  return selected.sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+}
 const PERIODS = [{ label: 'En la mañana', fromTime: '08:30', toTime: '12:00' },
   { label: 'En la tarde', fromTime: '12:00', toTime: '17:00' }];
 const dateAt = value => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
 const timeAt = value => new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
 const addDays = (date, count) => new Date(Date.parse(`${date}T12:00:00Z`) + count * 86_400_000).toISOString().slice(0, 10);
 const dayLabel = date => new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(`${date}T12:00:00Z`));
+// Texto al cliente siempre en 12 horas, hora de Colombia: «2:00 p. m.», nunca «14:00».
+const hour12 = value => {
+  const [hour, minute] = timeAt(value).split(':').map(Number);
+  return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'a. m.' : 'p. m.'}`;
+};
+const dayText = date => dayLabel(date).replace(',', '');
+const slotText = slot => {
+  const hour = Number(timeAt(slot.startAt).slice(0, 2));
+  return `${dayText(dateAt(slot.startAt))} ${hour % 12 === 1 ? 'a la' : 'a las'} ${hour12(slot.startAt)}`;
+};
+const WEEKDAYS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DAY_FILLER = new Set(['de', 'del', 'el', 'la', 'dia', 'para', 'proximo', 'este', 'a', 'mejor', 'si', 'ok', 'por', 'favor', 'gracias']);
 function selection(value, count) {
   if (/[?¿]/.test(value)) return null;
   const text = normalize(value).replace(/[!¡.,;:]/g, ' ').replace(/\s+/g, ' ').trim();
-  const match = text.match(/^(?:(?:si|claro|ok|listo|perfecto|vale)\s+)?(?:(?:yo\s+)?(?:elijo|escojo|selecciono|prefiero|confirmo|acepto|quiero|reservame|agendame|me sirve|me quedo con|me gustaria|me queda bien)\s+)?(?:la\s+|el\s+)?(?:opcion\s+|horario\s+|alternativa\s+)?(?:numero\s+)?([1-5]|uno|una|primera|primero|dos|segunda|segundo|tres|tercera|tercero)(?:\s+(?:opcion|horario|alternativa))?(?:\s+(?:me sirve|me queda bien|esta bien|me interesa))?(?:\s+por favor)?(?:\s+gracias)?$/);
+  const match = text.match(/^(?:(?:si|claro|ok|listo|perfecto|vale)\s+)?(?:(?:yo\s+)?(?:elijo|escojo|selecciono|prefiero|confirmo|acepto|quiero|reservame|agendame|me sirve|me quedo con|me gustaria|me queda bien)\s+)?(?:la\s+|el\s+)?(?:opcion\s+|horario\s+|alternativa\s+)?(?:numero\s+)?([1-8]|uno|una|primera|primero|dos|segunda|segundo|tres|tercera|tercero|cuatro|cuarta|cuarto|cinco|quinta|quinto|seis|sexta|sexto|siete|septima|septimo|ocho|octava|octavo)(?:\s+(?:opcion|horario|alternativa))?(?:\s+(?:me sirve|me queda bien|esta bien|me interesa))?(?:\s+por favor)?(?:\s+gracias)?$/);
   if (!match) return null;
-  const number = /^\d$/.test(match[1]) ? Number(match[1]) : ({ uno: 1, una: 1, primera: 1, primero: 1, dos: 2, segunda: 2, segundo: 2, tres: 3, tercera: 3, tercero: 3 })[match[1]];
+  const number = /^\d$/.test(match[1]) ? Number(match[1]) : ({ uno: 1, una: 1, primera: 1, primero: 1, dos: 2, segunda: 2, segundo: 2, tres: 3, tercera: 3, tercero: 3, cuatro: 4, cuarta: 4, cuarto: 4, cinco: 5, quinta: 5, quinto: 5, seis: 6, sexta: 6, sexto: 6, siete: 7, septima: 7, septimo: 7, ocho: 8, octava: 8, octavo: 8 })[match[1]];
   return number >= 1 && number <= count ? number - 1 : null;
 }
 function periodFrom(value) {
@@ -291,6 +326,22 @@ function selectedDay(value, days, now) {
   if (Object.hasOwn(relative, text)) {
     const date = addDays(dateAt(now), relative[text]);
     return days.includes(date) ? date : null;
+  }
+  // Respuestas libres como «Jueves 26», «26 de noviembre jueves», «26 jueves» o
+  // «el jueves»: cada parte presente debe coincidir con una única fecha ofrecida.
+  const words = text.split(' ').filter(Boolean);
+  const numbers = words.filter(word => /^\d{1,2}$/.test(word));
+  const weekdays = words.filter(word => WEEKDAYS.includes(word));
+  const months = words.filter(word => MONTHS.includes(word));
+  const rest = words.filter(word => !/^\d{1,2}$/.test(word) && !WEEKDAYS.includes(word) && !MONTHS.includes(word) && !DAY_FILLER.has(word));
+  if (!rest.length && (numbers.length || weekdays.length) && numbers.length <= 1 && weekdays.length <= 1 && months.length <= 1) {
+    const loose = days.filter(date => {
+      const [, month, day] = date.split('-').map(Number);
+      const weekday = normalize(new Intl.DateTimeFormat('es-CO', {timeZone:'America/Bogota',weekday:'long'}).format(new Date(`${date}T12:00:00Z`)));
+      return (!numbers.length || Number(numbers[0]) === day) && (!weekdays.length || weekdays[0] === weekday)
+        && (!months.length || MONTHS.indexOf(months[0]) + 1 === month);
+    });
+    if (loose.length === 1) return loose[0];
   }
   const matches = days.filter(date => {
     const [year, month, day] = date.split('-').map(Number);
@@ -311,6 +362,33 @@ function selectedDay(value, days, now) {
     return aliases.includes(text);
   });
   return matches.length === 1 ? matches[0] : null;
+}
+function naturalSlotSelection(value, slots, now) {
+  const text = normalize(value).replace(/\bp\s*\.\s*m\.?\b/g, 'pm')
+    .replace(/\ba\s*\.\s*m\.?\b/g, 'am');
+  // «jueves 5 a las 2 pm»: la hora es el número con a. m./p. m., minutos o
+  // precedido de «a las»; no el día del mes que aparece antes.
+  const clocks = [...text.matchAll(/\b([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\s*(am|pm)?\b/g)];
+  const clock = clocks.find(match => match[2] || match[3])
+    || clocks.find(match => /\b(?:a|para)?\s*las?\s*$/.test(text.slice(0, match.index)))
+    || (clocks.length === 1 ? clocks[0] : null);
+  if (!clock) return null;
+  let hour = Number(clock[1]);
+  const minute = clock[2] || '00';
+  if (clock[3] === 'pm' && hour < 12) hour += 12;
+  if (clock[3] === 'am' && hour === 12) hour = 0;
+  // Sin a. m./p. m., «a las 2» dentro del horario de atención es de la tarde.
+  if (!clock[3] && hour >= 1 && hour <= 5) hour += 12;
+  const time = `${String(hour).padStart(2, '0')}:${minute}`;
+  const dateText = text.slice(0, clock.index) + text.slice(clock.index + clock[0].length);
+  const dayWords = dateText.replace(/\b(?:a las?|para las?|el dia|del dia|en la|por la|por favor|porfa|gracias)\b/g, ' ')
+    .replace(/[.,!]/g, ' ').replace(/\s+/g, ' ').trim();
+  const dates = [...new Set(slots.map(slot => dateAt(slot.startAt)))];
+  const selected = dayWords ? selectedDay(dayWords, dates, now) : null;
+  const matches = slots.map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => timeAt(slot.startAt) === time
+      && (!selected || dateAt(slot.startAt) === selected));
+  return matches.length === 1 ? matches[0].index : null;
 }
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 
@@ -415,17 +493,17 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   function label(slot) {
     return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long',
-      day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }).format(new Date(slot.startAt));
+      day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startAt));
   }
   function recordedAppointmentMessage(state) {
     const date=new Intl.DateTimeFormat('es-CO',{timeZone:'America/Bogota',
-      weekday:'long',day:'numeric',month:'long',year:'numeric',hour:'numeric',minute:'2-digit'})
+      weekday:'long',day:'numeric',month:'long',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true})
       .format(new Date(state.slot.startAt));
     return `Veo una cita registrada para ${date} (hora de Colombia). Esa fecha ya pasó. ¿Quieres que revisemos horarios para una nueva asesoría?`;
   }
   async function available(clientCode, from, to, window, excluded = []) {
     const result = await crm(`/api/v1/leads/${encodeURIComponent(clientCode)}/availability`, {
-      advisorPool: true, mode: 'next_days', durationMinutes: APPOINTMENT_DURATION_MINUTES, quantity: 2,
+      advisorPool: true, mode: 'next_days', durationMinutes: APPOINTMENT_DURATION_MINUTES, quantity: 10,
       dateFrom: from, dateTo: to, daysAhead: 21, fromTime: window.fromTime, toTime: window.toTime,
       weekdays: ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'],
       excludeStarts: excluded.slice(-500),
@@ -446,6 +524,75 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     return reply(contactId, { step: 'period', clientCode, ...(date ? { date } : {}) },
       `${intro ? intro + '\n\n' : 'Con gusto coordinamos tu cita de asesoría virtual de 30 minutos por Zoom con un asesor 🗓️. Es una reunión a la que debes conectarte en el horario elegido.\n\n'}${date ? `Para el ${dayLabel(date)}, ¿prefieres` : '¿Prefieres'} tu cita en la mañana o en la tarde?`);
   }
+  // Una sola lista en texto: por día y, dentro de cada día, mañana y tarde.
+  // La numeración es continua para que el cliente responda con un número.
+  function optionsMessage(slots, intro) {
+    const lines = [intro];
+    const today = dateAt(now()), tomorrow = addDays(today, 1);
+    const numbered = slots.map((slot, index) => ({ slot, number: index + 1 }));
+    for (const date of [...new Set(slots.map(slot => dateAt(slot.startAt)))]) {
+      const text = dayText(date);
+      lines.push(`\n${date === today ? `Hoy, ${text}` : date === tomorrow ? `Mañana, ${text}` : text[0].toUpperCase() + text.slice(1)}`);
+      for (const [title, isMorning] of [['En la mañana', true], ['En la tarde', false]]) {
+        const group = numbered.filter(({ slot }) => dateAt(slot.startAt) === date
+          && (Number(timeAt(slot.startAt).slice(0, 2)) < 12) === isMorning);
+        if (group.length) lines.push(`${title}: ${group.map(({ slot, number }) => `${number}) ${hour12(slot.startAt)}`).join(' · ')}`);
+      }
+    }
+    lines.push('\nRespóndeme con el número o con el día y la hora que prefieras. Si ninguno te sirve, escribe «otros días»; si prefieres agendar más adelante, dímelo.');
+    return lines.join('\n');
+  }
+  async function offerNextSlots(contactId, clientCode, excluded = [], { after48Hours = false, leadIn = '' } = {}) {
+    const startMs = now();
+    const endMs = startMs + 48 * 60 * 60_000;
+    const today = dateAt(startMs);
+    const endDate = dateAt(endMs);
+    const window = { fromTime: '08:30', toTime: '17:00' };
+    let candidates = [];
+    if (!after48Hours) {
+      candidates = (await available(clientCode, today, endDate, window, excluded))
+        .filter(slot => Date.parse(slot.startAt) <= endMs);
+    }
+    let selected = selectEightSlots(candidates);
+    let future = false;
+    if (!selected.length || after48Hours) {
+      future = true;
+      const horizon = addDays(today, 21);
+      let cursor = endDate;
+      const cutoff = endMs;
+      candidates = [];
+      while (cursor <= horizon && candidates.length < 8) {
+        const chunkEnd = addDays(cursor, 6);
+        const next = await available(clientCode, cursor, chunkEnd, window, excluded);
+        candidates.push(...next.filter(slot => Date.parse(slot.startAt) > cutoff));
+        cursor = addDays(chunkEnd, 1);
+      }
+      selected = selectEightSlots(candidates);
+    }
+    if (!selected.length) return reply(contactId, { step: 'no_slots', clientCode },
+      'No encontré horarios disponibles durante las próximas tres semanas. Podemos pedirle al equipo que revise otras fechas.', { done: true });
+    const context = { step: 'choose', clientCode, slots: selected,
+      excludedStarts: [...new Set([...excluded, ...selected.map(slot => slot.startAt)])],
+      rangeEnd: new Date(endMs).toISOString(), futureSearch: future };
+    const intro = future
+      ? `${leadIn ? `${leadIn}\n\n` : ''}${after48Hours ? 'Estos son otros horarios disponibles' : 'No encontré espacios en las próximas 48 horas. Estos son los siguientes horarios disponibles'} para tu asesoría virtual de 30 minutos (hora de Colombia):`
+      : `${leadIn ? `${leadIn}\n\n` : ''}🗓️ Estos son los horarios disponibles para tu asesoría virtual de 30 minutos (hora de Colombia):`;
+    return reply(contactId, context, optionsMessage(selected, intro));
+  }
+  // Confirmación única en el mismo chat: sin variables vacías ni instrucciones
+  // contradictorias sobre el extracto, y sin prometer el envío de un enlace.
+  function confirmationMessage(slot, durationMinutes, name) {
+    const first = profileText(name)?.split(' ')[0];
+    return `✅ ¡Listo${first ? `, ${first[0].toUpperCase()}${first.slice(1).toLowerCase()}` : ''}! Tu asesoría quedó agendada para el ${slotText(slot)} (hora de Colombia).\n\n`
+      + `Es una reunión virtual por Zoom de ${durationMinutes} minutos y la asesoría inicial es gratuita.\n\n`
+      + 'Ten abierto el último extracto de tu crédito en PDF; el asesor te dirá cómo compartirlo. Conéctate con todos los titulares del crédito.\n\n'
+      + 'Si necesitas cambiar la cita, escríbenos por este mismo chat.';
+  }
+  // Tras tres respuestas no reconocidas no se repite la misma pregunta: pasa a un asesor.
+  function misunderstood(contactId, state) {
+    return reply(contactId, { step: 'human_requested', clientCode: state.clientCode },
+      'Para no hacerte perder tiempo, le pido a un asesor de Avanzar que te ayude a elegir el horario por este mismo chat.', { done: true, human: true });
+  }
   async function offerDays(contactId, clientCode, window) {
     let from = dateAt(now());
     const cutoff = Number(env.APPOINTMENT_SAME_DAY_CUTOFF_HOUR || 12);
@@ -465,11 +612,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       excludedStarts: [...new Set([...excluded, ...slots.map(slot => slot.startAt)])] };
     if (!slots.length) return reply(contactId, context, 'No encontré otros horarios libres en ese día y franja. ¿Prefieres otro día u otra franja?');
     return reply(contactId, context,
-      `🕒 Estos son los horarios libres para tu cita de asesoría virtual de 30 minutos por Zoom el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${timeAt(slot.startAt)}`).join('\n')}\n\n¿En cuál puedes conectarte? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
+      `🕒 Estos son los horarios libres para tu cita de asesoría virtual de 30 minutos por Zoom el ${dayLabel(date)} (hora de Colombia):\n\n${slots.map((slot, index) => `${index + 1}. ${hour12(slot.startAt)}`).join('\n')}\n\n¿En cuál puedes conectarte? Puedes decir el horario, «la primera» o el número. También podemos revisar otro día u otra franja.`);
   }
   async function options(contactId, clientCode, excluded = [], context = {}) {
     if (context.date) return offerTimes(contactId, { ...context, clientCode }, context.date, excluded);
-    return askPeriod(contactId, clientCode);
+    return offerNextSlots(contactId, clientCode, excluded);
   }
   async function upsertLead(contactId, phone, fields, { handoff = false, displayName = '', booking = false } = {}) {
     let clientCode = fields.crm_30x_codigo;
@@ -727,13 +874,28 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
   }
   async function profileOrOptions(contactId, phone, fields) {
     const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
-    if (!String(fields.nombre_completo ?? '').trim()) return reply(contactId, { step: 'name' }, 'Para agendar con el asesor, ¿cuál es tu nombre completo?');
-    if (!String(fields.ciudad_municipio ?? '').trim()) return reply(contactId, { step: 'city' }, '¿En qué ciudad o municipio estás?');
-    if (!yes(fields.obligacion_vivienda_activa)) return reply(contactId, { step: 'active' },
-      '¿Actualmente tienes un crédito hipotecario o leasing habitacional que todavía estás pagando? Responde SÍ o NO.');
+    // Ruta aprobada: no volver a pedir nombre (viene del formulario/CRM) ni
+    // ciudad (no cambia una cita virtual), ni repetir si el crédito está
+    // vigente cuando el cliente ya dio banco, plazo y tiempo pagando (APLICA).
+    const updates = {};
+    if (!profileText(fields.nombre_completo)) {
+      try {
+        const registered = scheduling?.findRegisteredClient ? await scheduling.findRegisteredClient(phone)
+          : database ? await database.findClienteByPhone(phone) : null;
+        const name = profileText(registered?.nombre_completo);
+        if (name) updates.nombre_completo = name;
+      } catch { /* Sin nombre del CRM se agenda con el nombre del contacto. */ }
+    }
+    if (!yes(fields.obligacion_vivienda_activa)) Object.assign(updates, { obligacion_vivienda_activa: 'si', linea_interes: 'RCH' });
+    if (Object.keys(updates).length) {
+      await setAttributes(contactId, updates);
+      fields = { ...fields, ...updates };
+    }
     const clientCode = await upsertLead(contactId, phone, fields, {booking:true});
     await setAttributes(contactId, { crm_30x_codigo: clientCode });
-    return askPeriod(contactId, clientCode,nightPreference(fields['last user freeform input'])?{intro:nightExplanation}:{});
+    return offerNextSlots(contactId, clientCode, [], {
+      leadIn: nightPreference(fields['last user freeform input']) ? nightExplanation : '',
+    });
   }
 
   const handle = async function handle(request) {
@@ -820,7 +982,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           } catch { /* The booking remains confirmed when CRM is unavailable. */ }
         }
         return reply(contactId, { ...state, crmSyncPending: pending,responsibleId },
-          `Tu cita ya está confirmada para ${label(state.slot)} (hora de Colombia).\n\n${APPOINTMENT_PREPARATION_REMINDER}`,
+          `Tu cita ya está confirmada para el ${slotText(state.slot)} (hora de Colombia).\n\n${APPOINTMENT_PREPARATION_REMINDER}`,
           { done: true, fields: { bitrix_negociacion_sync: reviewRequired ? 'revision_requerida' : pending ? 'pendiente' : state.bookingDealId ? 'completado' : 'no_aplica',
             ...(state.bookingDealId ? {bitrix_responsable_id:responsibleId,
               bitrix_responsable_sync:reviewRequired ? 'revision_requerida' : pending ? 'pendiente' : 'completado'} : {}) } });
@@ -829,10 +991,15 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         { step: 'check_pending' }, 'Hay una reserva pendiente de verificación. Un asesor debe comprobarla antes de solicitar otra cita.', { done: true });
       if (!state && expired && ['day','choose','confirm'].includes(expired.step)) {
         const blocked=await eligibilityGate(contactId,phone,fields);if(blocked)return blocked;
-        if (!fields.nombre_completo || !fields.ciudad_municipio || !yes(fields.obligacion_vivienda_activa)) return profileOrOptions(contactId,phone,fields);
+        if (!yes(fields.obligacion_vivienda_activa)) return profileOrOptions(contactId,phone,fields);
         const clientCode = await upsertLead(contactId,phone,fields);
         await setAttributes(contactId,{crm_30x_codigo:clientCode});
         const context = {...expired,clientCode};
+        // Una lista o confirmación vencida de la agenda en un paso se refresca con
+        // disponibilidad nueva; nunca reserva el horario viejo sin elegir y confirmar.
+        if (['choose', 'confirm'].includes(expired.step) && !context.date) {
+          return offerNextSlots(contactId, clientCode, []);
+        }
         const window = {fromTime:context.fromTime || '08:30',toTime:context.toTime || '17:00'};
         if (expired.step !== 'day' && context.date >= dateAt(now()) && context.date <= addDays(dateAt(now()),21)) return offerTimes(contactId,context,context.date);
         return offerDays(contactId,clientCode,window);
@@ -868,6 +1035,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (['choose','confirm'].includes(state.step) && Array.isArray(offered)
         && offered.some(slot => Date.parse(slot?.endAt) - Date.parse(slot?.startAt) !== APPOINTMENT_DURATION_MS)) {
         if (state.date >= dateAt(now()) && state.date <= addDays(dateAt(now()),21)) return offerTimes(contactId,state,state.date);
+        if (!state.date) return offerNextSlots(contactId, state.clientCode, []);
         return offerDays(contactId,state.clientCode,{fromTime:state.fromTime||'08:30',toTime:state.toTime||'17:00'});
       }
       if (state.step === 'name' || state.step === 'city') {
@@ -886,8 +1054,12 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       }
       if (['period', 'day', 'choose', 'confirm'].includes(state.step)) {
         const text = normalize(answer);
-        if (/\b(?:otro dia|cambiar (?:de )?dia|otra fecha)\b/.test(text)) return offerDays(contactId, state.clientCode,
-          { fromTime: state.fromTime || '08:30', toTime: state.toTime || '17:00' });
+        if (/\b(?:otros? dias?|ver otros dias|cambiar (?:de )?dia|otras? fechas?)\b/.test(text)) {
+          if (state.step === 'choose' && !state.date) return offerNextSlots(contactId, state.clientCode,
+            state.excludedStarts || state.slots?.map(slot => slot.startAt) || [], {after48Hours:true});
+          return offerDays(contactId, state.clientCode,
+            { fromTime: state.fromTime || '08:30', toTime: state.toTime || '17:00' });
+        }
         if (/\b(?:otra franja|cambiar (?:de )?franja)\b/.test(text)) return askPeriod(contactId, state.clientCode, { date: state.date });
         if (state.step === 'period') {
           if(nightPreference(answer))return askPeriod(contactId,state.clientCode,{date:state.date,intro:nightExplanation});
@@ -898,9 +1070,33 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         }
         if (state.step === 'day') {
           const date = selectedDay(answer, state.days, now());
-          if (!date) return reply(contactId, state, `Puedes elegir ${state.days.map(dayLabel).join(' o ')}. ¿Cuál prefieres?`);
+          if (!date) {
+            const misses = (state.misses || 0) + 1;
+            if (misses >= 2) return misunderstood(contactId, state);
+            return reply(contactId, { ...state, misses },
+              `No logré identificar el día. Respóndeme solo con el número:\n\n${state.days.map((day, index) => `${index + 1}. ${dayLabel(day)}`).join('\n')}`);
+          }
           const requestedWindow = /(?:en|por) la (?:tarde|manana)\b/.test(text) ? periodFrom(answer) : null;
           return offerTimes(contactId, { ...state, ...(requestedWindow || {}) }, date);
+        }
+        if (state.step === 'choose' && !state.date && Array.isArray(state.slots) && nightPreference(answer)) {
+          return reply(contactId, state, optionsMessage(state.slots, `${nightExplanation}\n\nEstos son los horarios disponibles (hora de Colombia):`));
+        }
+        // En la lista de un paso, «jueves por la tarde» o «en la mañana» filtran
+        // las opciones ofrecidas; si no queda ninguna, se consulta ese día/franja.
+        const franja = /(?:en|por) la (?:tarde|manana)\b|^(?:tarde|manana)$/.test(text) ? periodFrom(answer) : null;
+        if (state.step === 'choose' && !state.date && Array.isArray(state.slots) && franja) {
+          const offeredDays = [...new Set(state.slots.map(slot => dateAt(slot.startAt)))];
+          const dayWords = text.replace(/(?:en|por) la (?:tarde|manana)\b|^(?:tarde|manana)$/, ' ').replace(/\s+/g, ' ').trim();
+          const day = dayWords ? selectedDay(dayWords, offeredDays, now()) : null;
+          const isMorning = franja.fromTime === '08:30';
+          const filtered = state.slots.filter(slot => (!day || dateAt(slot.startAt) === day)
+            && (Number(timeAt(slot.startAt).slice(0, 2)) < 12) === isMorning);
+          if (filtered.length) return reply(contactId, {...state,slots:filtered,misses:0},
+            optionsMessage(filtered, `Estos son los horarios que encontré${day ? ` el ${dayText(day)}` : ''} en la ${isMorning ? 'mañana' : 'tarde'} (hora de Colombia):`));
+          if (day) return offerTimes(contactId, { ...state, ...franja }, day);
+          return offerNextSlots(contactId, state.clientCode, state.excludedStarts || [],
+            {leadIn:'No había más opciones en esa franja; revisé nuevas disponibilidades.'});
         }
         if (/(?:en|por) la (?:tarde|manana)\b|^tarde$/.test(text)) {
           const window = periodFrom(answer);
@@ -910,6 +1106,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (state.step === 'choose') {
         if (/^(?:mas|otras opciones|otros horarios|mas opciones|mas horarios|no me sirven|ningun[oa] me sirve|ninguno|ninguna)[.!]*$/.test(normalize(answer))) return options(contactId, state.clientCode, state.excludedStarts || state.slots.map(s => s.startAt), state);
         let index = selection(answer, state.slots.length);
+        if (index === null) index = naturalSlotSelection(answer, state.slots, now());
         const clock = normalize(answer).replace(/\b([ap])\s*\.\s*m\s*\.?/g, '$1m').match(/^(?:(?:a las|la de las|prefiero a las)\s+)?([01]?\d|2[0-3])(?:[:.]([0-5]\d))?(?:\s*(am|pm))?[.!]*$/);
         if (index === null && clock) {
           let hour = Number(clock[1]);
@@ -919,13 +1116,33 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           const matches = state.slots.map((slot, i) => timeAt(slot.startAt) === time ? i : -1).filter(i => i >= 0);
           if (matches.length === 1) index = matches[0];
         }
-        if (index === null) return reply(contactId, state, '¿Cuál de los horarios ofrecidos te sirve? Puedes responder con la hora, el número o decir, por ejemplo, «la primera». También podemos revisar otro día u otra franja.');
+        if (index === null && !state.date && !/^\d+$/.test(normalize(answer).trim())) {
+          const day = selectedDay(answer, [...new Set(state.slots.map(slot => dateAt(slot.startAt)))], now());
+          const filtered = day ? state.slots.filter(slot => dateAt(slot.startAt) === day) : [];
+          if (filtered.length) return reply(contactId, { ...state, slots: filtered, misses: 0 },
+            optionsMessage(filtered, `Estos son los horarios del ${dayText(day)} (hora de Colombia):`));
+        }
+        if (index === null) {
+          const misses = (state.misses || 0) + 1;
+          if (misses >= 2) return misunderstood(contactId, state);
+          if (!state.date) return reply(contactId, { ...state, misses },
+            optionsMessage(state.slots, 'No logré identificar el horario. Te dejo de nuevo las opciones; respóndeme solo con el número:'));
+          return reply(contactId, { ...state, misses }, '¿Cuál de los horarios te sirve? Respóndeme con el número o con el día y la hora, por ejemplo «2» o «jueves a las 9:00 a. m.».');
+        }
         const slot = state.slots[index];
-        return reply(contactId, { ...state, step: 'confirm', slot },
-          `🗓️ Elegiste ${label(slot)} (hora de Colombia), para tu cita de asesoría virtual de 30 minutos por Zoom. ¿Confirmas que puedes conectarte y que reserve ese horario? Responde SÍ o CANCELAR.`);
+        return reply(contactId, { ...state, step: 'confirm', slot, misses: 0 },
+          `Elegiste el ${slotText(slot)} (hora de Colombia). ¿Confirmamos tu asesoría? Respóndeme SÍ para reservarla o dime si prefieres otro horario.`);
+      }
+      if (state.step === 'confirm' && /\b(?:otro|otra|cambiar|cambio)\s+(?:de\s+)?(?:el\s+)?(?:horario|hora|dia|fecha)\b/.test(normalize(answer))) {
+        return offerNextSlots(contactId, state.clientCode, [...new Set([...(state.excludedStarts || []), state.slot.startAt])]);
       }
       if (state.step === 'confirm' || state.step === 'booking') {
-        if (state.step === 'confirm' && !confirmBooking(answer)) return reply(contactId, state, '¿Confirmas que reserve el horario elegido? Si prefieres dejarlo pendiente, también me lo puedes decir.');
+        if (state.step === 'confirm' && !confirmBooking(answer)) {
+          const misses = (state.misses || 0) + 1;
+          if (misses >= 2) return misunderstood(contactId, state);
+          return reply(contactId, { ...state, misses },
+            `¿Confirmamos tu asesoría del ${slotText(state.slot)} (hora de Colombia)? Respóndeme SÍ, o dime si prefieres otro horario o dejarlo para después.`);
+        }
         // Chatfuel may stop waiting before Bitrix finishes. Replace the flow's
         // fallback before any slow work, so a timeout reports an ongoing check.
         // The durable booking key still protects later replies from duplicates.
@@ -977,7 +1194,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
           return reply(contactId, { step: 'confirmed', clientCode: state.clientCode, bookingDealId, crmSyncPending,
             responsibleId:booking.crmSync?.responsibleId || '',
             slot: state.slot, bitrixEventId: String(booking.bitrixEventId), appointmentId: booking.appointmentId },
-          `✅ Tu cita de asesoría virtual por Zoom quedó agendada para ${label(state.slot)} (hora de Colombia), con un asesor. Duración: ${durationMinutes} minutos. 💻 Recuerda conectarte puntualmente a tu cita.\n\n${APPOINTMENT_PREPARATION_REMINDER}\n\nLa asesoría inicial es gratuita. El extracto debe estar completo, en PDF, y compartirse por el canal autorizado. También deben estar todos los titulares y quienes tomarán la decisión.\n\nTe esperamos; si necesitas revisarla, escríbenos por este mismo chat.`,
+          confirmationMessage(state.slot, durationMinutes, fields.nombre_completo),
           { done: true, fields: { bitrix_reserva_pendiente: 'no', bitrix_evento_id: booking.bitrixEventId, bitrix_cita_id: booking.appointmentId,
             bitrix_cita_inicio: booking.startAt, crm_30x_codigo: state.clientCode,
             bitrix_negociacion_id: bookingDealId || '',

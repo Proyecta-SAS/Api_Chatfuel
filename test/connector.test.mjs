@@ -122,22 +122,40 @@ function fixture({ initial = {}, bookingError = null, invalidBooking = false,
   return { fields, calls, request, handle, bookings, advance: ms => { time += ms; } };
 }
 
+// Ruta aprobada: al aceptar la cita se ofrece de una vez la lista de horarios.
 async function prepareOptions(f) {
-  await f.request('start');
-  await f.request('step', 'en la mañana');
-  return f.request('step', '1');
+  return f.request('start');
+}
+const stateOf = f => JSON.parse(Buffer.from(f.fields.bitrix_agenda_estado.split('.')[0], 'base64url'));
+// Estado firmado como lo dejaba la versión anterior (franja → día → hora, nombre,
+// ciudad o crédito activo). Las conversaciones abiertas deben seguir reanudando.
+function legacyState(f, state, expires = START + 30 * 60_000) {
+  const payload = Buffer.from(JSON.stringify({ clientCode: 'CLI-MOCK-ONLY', ...state, engine: 'local-v1', contactId: CONTACT, expires })).toString('base64url');
+  f.fields.bitrix_agenda_estado = `${payload}.${createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
 }
 
 test('accepts customer-written dates only when they match an offered day', async () => {
-  for (const answer of ['miércoles 4 de noviembre','4 Noviembre','miércoles, 4 de noviembre de 2026','04/11/2026','4-11-2026']) {
-    const f=fixture();await f.request('start');await f.request('step','en la mañana');
+  // Paso de día heredado: las fechas libres del cliente se reconocen sin repetir la pregunta.
+  for (const answer of ['miércoles 4 de noviembre','4 Noviembre','miércoles, 4 de noviembre de 2026','04/11/2026','4-11-2026',
+    'Jueves 5','5 de noviembre jueves','5 jueves','el jueves','5 de Noviembre Jueves']) {
+    const f=fixture();legacyState(f,{step:'period'});await f.request('step','en la mañana');
     const result=await f.request('step',answer);
-    assert.match(result.message,/horarios libres/);assert.equal(f.bookings().length,0);
+    assert.match(result.message,/horarios libres/,answer);assert.equal(f.bookings().length,0);
+    assert.doesNotMatch(result.message,/\b(?:1[3-9]|2\d):\d\d\b/,answer);
   }
   for (const answer of ['jueves 4 de noviembre','04/12/2026','04/11/2025','¿el 4 de noviembre?']) {
-    const f=fixture();await f.request('start');await f.request('step','en la mañana');
-    assert.match((await f.request('step',answer)).message,/Puedes elegir/);assert.equal(f.bookings().length,0);
+    const f=fixture();legacyState(f,{step:'period'});await f.request('step','en la mañana');
+    assert.match((await f.request('step',answer)).message,/No logré identificar el día/,answer);assert.equal(f.bookings().length,0);
   }
+});
+
+test('el paso de día heredado no repite la misma pregunta: al segundo fallo pasa a un asesor', async () => {
+  const f=fixture();legacyState(f,{step:'period'});await f.request('step','en la mañana');
+  const first=await f.request('step','el que sea');
+  assert.match(first.message,/No logré identificar el día/);assert.match(first.message,/1\. /);
+  const second=await f.request('step','el otro');
+  assert.equal(second.human,'si');assert.match(second.message,/asesor/);
+  assert.notEqual(first.message,second.message);assert.equal(f.bookings().length,0);
 });
 
 test('resuming a cancelled or expired choice refreshes browsing without booking', async () => {
@@ -146,16 +164,17 @@ test('resuming a cancelled or expired choice refreshes browsing without booking'
     await f.request('step','CANCELAR');
     if(expired)f.advance(31*60_000);
     const resumed=await f.request('step','1');
-    assert.match(resumed.message,/mañana o en la tarde/);assert.equal(f.bookings().length,0);
-    assert.equal(JSON.parse(Buffer.from(f.fields.bitrix_agenda_estado.split('.')[0],'base64url')).step,'period');
+    assert.match(resumed.message,/horarios disponibles/);assert.equal(f.bookings().length,0);
+    assert.equal(stateOf(f).step,'choose');
   }
 });
 
 test('accepts a municipality followed by its department in parentheses', async () => {
+  // Una conversación que quedó en la pregunta de ciudad (versión anterior) sigue funcionando.
   const f=fixture({initial:{nombre_completo:'Persona de Prueba',ciudad_municipio:''}});
-  await f.request('start');
+  legacyState(f,{step:'city',clientCode:undefined});
   const result=await f.request('step','Manizales (Caldas)');
-  assert.equal(f.fields.ciudad_municipio,'Manizales (Caldas)');assert.match(result.message,/mañana o en la tarde/);
+  assert.equal(f.fields.ciudad_municipio,'Manizales (Caldas)');assert.match(result.message,/horarios disponibles/);
 });
 
 test('una aceptación repetida tras el acuse retoma la oferta aceptada una sola vez',async()=>{
@@ -187,8 +206,8 @@ test('una cita pasada confirmada permite pedir otra sin borrar ni duplicar la an
   assert.match(renewed.message,/cita registrada/);
   assert.match(renewed.message,/2026/);
   assert.match(renewed.message,/fecha ya pasó/);
-  assert.doesNotMatch(renewed.message,/mañana o en la tarde/);
-  assert.match((await f.request('step','de acuerdo')).message,/mañana o en la tarde/);
+  assert.doesNotMatch(renewed.message,/horarios disponibles/);
+  assert.match((await f.request('step','de acuerdo')).message,/horarios disponibles/);
   assert.equal(f.bookings().length,1);
 });
 
@@ -202,7 +221,7 @@ test('pedir otro horario tras una cita pasada retoma la agenda sin crear una res
     f.advance(7*24*60*60_000);
     assert.match((await f.request('start')).message,/fecha ya pasó/);
     const response=await f.request('step',answer);
-    assert.match(response.message,/mañana o en la tarde/,answer);
+    assert.match(response.message,/horarios disponibles/,answer);
     assert.doesNotMatch(response.message,/fecha ya pasó/,answer);
     assert.equal(f.bookings().length,1);
   }
@@ -217,22 +236,29 @@ test('negar o condicionar otra cita no se interpreta como aceptación',async()=>
     await prepareOptions(f);await f.request('step','1');await f.request('step','si');
     f.advance(7*24*60*60_000);await f.request('start');
     const response=await f.request('step',answer);
-    assert.doesNotMatch(response.message,/mañana o en la tarde/,answer);
+    assert.doesNotMatch(response.message,/horarios disponibles|mañana o en la tarde/,answer);
     assert.equal(f.bookings().length,1);
   }
 });
 
 test('pedir otros horarios en una confirmación no confirma automáticamente la reserva',async()=>{
-  const f=fixture();await prepareOptions(f);await f.request('step','1');
-  await f.request('step','me gustaría ver otro horario');
-  assert.equal(f.bookings().length,0);
+  const f=fixture();await prepareOptions(f);
+  const chosen=(await f.request('step','1'));assert.match(chosen.message,/Confirmamos tu asesoría/);
+  const firstSlot=stateOf(f).slot.startAt;
+  for(const answer of ['me gustaría ver otro horario','prefiero cambiar el horario']){
+    const response=await f.request('step',answer);
+    assert.match(response.message,/horarios disponibles/,answer);assert.equal(stateOf(f).step,'choose');
+    assert.ok(stateOf(f).slots.every(slot=>slot.startAt!==firstSlot),answer);
+    assert.equal(f.bookings().length,0);
+    await f.request('step','1');
+  }
 });
 
 test('la hora escrita con punto selecciona únicamente el horario ofrecido y pide confirmación',async()=>{
   for(const answer of ['16.30','16:30','4.30 pm','4.30 p. m.','a las 16.30']){
     const slot={startAt:'2026-11-05T21:30:00Z',endAt:'2026-11-05T22:00:00Z',advisorId:'advisor-one'};
     const f=fixture({availabilitySlots:[slot]});
-    await f.request('start');await f.request('step','tarde');await f.request('step','1');
+    await f.request('start');
     const result=await f.request('step',answer);
     assert.match(result.message,/Elegiste/,answer);assert.match(result.message,/4:30 p/);
     assert.equal(f.bookings().length,0);
@@ -279,7 +305,7 @@ test('una cita confirmada futura sigue protegida ante una nueva solicitud',async
   await prepareOptions(f);await f.request('step','1');await f.request('step','si');
   const repeated=await f.request('start');
   assert.match(repeated.message,/ya está confirmada/);
-  assert.match(repeated.message,/ten a la mano el extracto más reciente/);
+  assert.match(repeated.message,/último extracto de tu crédito en PDF/);
   assert.equal(f.bookings().length,1);
 });
 
@@ -289,7 +315,7 @@ test('la cita futura se informa con su fecha aunque el estado de conversación h
   f.advance(31*60_000);
   const response=await f.request('start');
   assert.match(response.message,/ya está confirmada/);
-  assert.match(response.message,/ten a la mano el extracto más reciente/);
+  assert.match(response.message,/último extracto de tu crédito en PDF/);
   assert.doesNotMatch(response.message,/no pude|verificando/i);
   assert.equal(f.bookings().length,1);
 });
@@ -298,12 +324,12 @@ test('la propuesta de incremento mínimo permite completar datos y mostrar días
   const f=fixture({initial:{rch_puede_aumentar_cuota:'desconocido',nombre_completo:'',ciudad_municipio:'',obligacion_vivienda_activa:''},
     bookingMessages:[{__typename:'WhatsAppInTextMessage',text:'Si podría'},
       {__typename:'WhatsAppOutTextMessage',text:'¿Te gustaría reducir el tiempo de pago de tu crédito hipotecario y los intereses que te cobra el banco, aumentando mínimamente tu cuota mensual?'}]});
-  assert.match((await f.request('start')).message,/nombre completo/);
-  assert.match((await f.request('step','Persona Ejemplo')).message,/ciudad/);
-  assert.match((await f.request('step','Bogotá')).message,/hipotecario o leasing/);
-  assert.match((await f.request('step','Si')).message,/mañana o en la tarde/);
-  assert.match((await f.request('step','mañana')).message,/día/);
-  assert.match((await f.request('step','1')).message,/horarios libres/);
+  // Ruta aprobada: con el perfil aplicable no se piden nombre, ciudad ni crédito activo.
+  const start=await f.request('start');
+  assert.match(start.message,/horarios disponibles/);
+  assert.doesNotMatch(start.message,/nombre completo|ciudad|hipotecario o leasing|mañana o en la tarde/);
+  assert.equal(f.fields.obligacion_vivienda_activa,'si');
+  assert.match((await f.request('step','1')).message,/Confirmamos tu asesoría/);
   assert.equal(f.fields.rch_puede_aumentar_cuota,'si');
   assert.equal(f.bookings().length,0);
 });
@@ -345,24 +371,34 @@ test('al entrar a agenda conserva la corrección real y no repite tiempos financ
   const f=fixture({initial:{rch_plazo_inicial:'aproximadamente 28 años',rch_tiempo_pagando:'aproximadamente 6 años'},bookingMessages});
   const response=await f.request('start');
   assert.equal(f.fields.rch_plazo_inicial,'30 años');assert.equal(f.fields.rch_tiempo_pagando,'10 años');
-  assert.match(response.message,/mañana o en la tarde/);assert.doesNotMatch(response.message,/tomaste|llevas pagando/);
+  assert.match(response.message,/horarios disponibles/);assert.doesNotMatch(response.message,/tomaste|llevas pagando/);
 });
 
 test('la agenda confirma solo un perfil aplicable y conserva el aviso final de la cita',async()=>{
   const f=fixture();
-  const start=await f.request('start');assert.match(start.message,/mañana o en la tarde/);
-  const days=await f.request('step','mañana'),times=await f.request('step','1'),confirmation=await f.request('step','1');
-  for(const reply of [start,days,times,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares|ten a la mano el extracto/);
+  const start=await f.request('start');assert.match(start.message,/horarios disponibles/);assert.match(start.message,/30 minutos/);
+  const confirmation=await f.request('step','1');
+  assert.match(confirmation.message,/^Elegiste el miércoles 4 de noviembre a las 9:00 a\. m\. \(hora de Colombia\)\. ¿Confirmamos tu asesoría\?/);
+  for(const reply of [start,confirmation])assert.doesNotMatch(reply.message,/gratuita|PDF|titulares|extracto/);
   const result=await f.request('step','sí');
-  assert.match(result.message,/cita de asesoría virtual por Zoom quedó agendada/);assert.match(result.message,/30 minutos/);
-  assert.match(start.message,/debes conectarte/);assert.match(confirmation.message,/puedes conectarte/);
-  assert.match(result.message,/conectarte puntualmente/);
-  assert.match(result.message,/La asesoría inicial es gratuita/);
-  assert.match(result.message,/ten a la mano el extracto más reciente de tu crédito hipotecario/);
-  assert.match(result.message,/No necesitas enviarlo por este chat/);
-  assert.match(result.message,/El extracto debe estar completo, en PDF/);
-  assert.match(result.message,/todos los titulares y quienes tomarán la decisión/);
-  assert.doesNotMatch(result.message,/Tatiana|https?:\/\//);assert.equal(f.bookings().length,1);
+  assert.match(result.message,/^✅ ¡Listo, Persona! Tu asesoría quedó agendada para el miércoles 4 de noviembre a las 9:00 a\. m\. \(hora de Colombia\)/);
+  assert.match(result.message,/virtual por Zoom de 30 minutos/);
+  assert.match(result.message,/la asesoría inicial es gratuita/);
+  assert.match(result.message,/último extracto de tu crédito en PDF; el asesor te dirá cómo compartirlo/);
+  assert.match(result.message,/todos los titulares del crédito/);
+  assert.match(result.message,/escríbenos por este mismo chat/);
+  // Un solo cierre, sin instrucciones contradictorias ni variables vacías.
+  assert.doesNotMatch(result.message,/canal autorizado|No necesitas enviarlo|pendiente|undefined|null|\[|\{\{/);
+  assert.equal(result.message.match(/este mismo chat/g).length,1);
+  assert.doesNotMatch(result.message,/Tatiana|https?:\/\/|enlace/);assert.equal(f.bookings().length,1);
+});
+
+test('la confirmación final omite el nombre cuando no se conoce, sin dejar variables vacías',async()=>{
+  const f=fixture({initial:{nombre_completo:''}});
+  await prepareOptions(f);await f.request('step','1');
+  const result=await f.request('step','sí');
+  assert.match(result.message,/^✅ ¡Listo! Tu asesoría quedó agendada/);
+  assert.doesNotMatch(result.message,/pendiente|undefined|null|, !/);
 });
 
 test('aceptación enfática y petición directa de horarios recuperan el flujo una sola vez',async()=>{
@@ -395,15 +431,11 @@ test('BBVA declarado en el chat bloquea agenda aunque la captura antigua diga Ba
 
 test('una credencial rechazada tras confirmar el crédito conserva los datos sin anunciar una reserva', async () => {
   const f = fixture({ initial: { nombre_completo: '', ciudad_municipio: '', obligacion_vivienda_activa: '' }, resolveError: 401 });
-  await f.request('start');
-  await f.request('step', 'Persona de Prueba');
-  await f.request('step', 'Bogotá');
-  const response = await f.request('step', 'Sí');
+  const response = await f.request('start');
   assert.equal(response.status, 200);
   assert.equal(response.error, 'BOOKING_LOOKUP_FAILED');
   assert.equal(response.cause, 'CRM_UNAUTHORIZED');
   assert.match(response.message, /no se ha solicitado/);
-  assert.equal(f.fields.ciudad_municipio, 'Bogotá');
   assert.equal(f.fields.obligacion_vivienda_activa, 'si');
   assert.equal(f.bookings().length, 0);
   assert.notEqual(f.fields.bitrix_reserva_pendiente, 'si');
@@ -412,18 +444,16 @@ test('una credencial rechazada tras confirmar el crédito conserva los datos sin
 
 test('las consultas de horarios toleran dos fallos temporales sin duplicar reservas', async () => {
   const f = fixture({ availabilityErrors: [503, 'network'] });
-  await f.request('start');
-  const response = await f.request('step', 'en la mañana');
+  const response = await f.request('start');
   assert.equal(response.error, undefined);
-  assert.match(response.message, /Qué día/);
+  assert.match(response.message, /horarios disponibles/);
   assert.equal(f.calls.filter(c => c.url.endsWith('/availability')).length, 3);
   assert.equal(f.bookings().length, 0);
 });
 
 test('los fallos persistentes de consulta terminan con un mensaje recuperable y sin reservar', async () => {
   const f = fixture({ availabilityErrors: [503, 503, 503, 503] });
-  await f.request('start');
-  const response = await f.request('step', 'en la mañana');
+  const response = await f.request('start');
   assert.equal(response.error, 'BOOKING_LOOKUP_FAILED');
   assert.equal(f.calls.filter(c => c.url.endsWith('/availability')).length, 3);
   assert.equal(f.bookings().length, 0);
@@ -533,14 +563,35 @@ test('unauthorized and preview requests create no CRM records', async () => {
   assert.equal(f.calls.length, 0);
 });
 
-test('missing profile is collected before creating a negotiation', async () => {
+test('missing name, city or active-credit answer are not asked again once the profile applies', async () => {
   const f = fixture({ initial: { nombre_completo: '', ciudad_municipio: '', obligacion_vivienda_activa: '' } });
-  assert.match((await f.request('start')).message, /nombre completo/);
-  assert.match((await f.request('step', 'Persona de Prueba')).message, /ciudad/);
-  assert.match((await f.request('step', 'Bogotá')).message, /actualmente/i);
-  assert.equal(f.calls.filter(c => c.url.includes('crm.mock')).length, 0);
-  assert.match((await f.request('step', 'sí')).message, /mañana o en la tarde/);
+  const start = await f.request('start');
+  assert.match(start.message, /horarios disponibles/);
+  assert.doesNotMatch(start.message, /nombre completo|ciudad|municipio|actualmente/i);
+  assert.equal(f.fields.obligacion_vivienda_activa, 'si');
   assert.equal(f.fields.crm_30x_codigo, 'CLI-MOCK-ONLY');
+  assert.equal(f.fields.ciudad_municipio, '');
+  assert.equal(f.bookings().length, 0);
+});
+
+test('el nombre del formulario se toma del CRM en lugar de preguntarlo', async () => {
+  const f = fixture({ initial: { nombre_completo: '', ciudad_municipio: '' },
+    database: { findClienteByPhone: async () => ({ id_negociacion: '777', nombre_completo: 'Neyda Ayala Africano' }) } });
+  const start = await f.request('start');
+  assert.match(start.message, /horarios disponibles/);assert.doesNotMatch(start.message, /nombre/);
+  assert.equal(f.fields.nombre_completo, 'Neyda Ayala Africano');
+  const lead = f.calls.filter(c => c.url.endsWith('/prospecting-bot/lead')).at(-1);
+  assert.equal(lead.payload.contactName, 'Neyda Ayala Africano');
+  await f.request('step', '1');
+  assert.match((await f.request('step', 'sí')).message, /^✅ ¡Listo, Neyda! /);
+  assert.equal(f.bookings().length, 1);
+});
+
+test('un fallo al consultar el nombre en el CRM no bloquea la agenda', async () => {
+  const f = fixture({ initial: { nombre_completo: '' },
+    database: { findClienteByPhone: async () => { throw Object.assign(new Error(), { code: 'DB_DOWN' }); } } });
+  const start = await f.request('start');
+  assert.equal(start.error, undefined);assert.match(start.message, /horarios disponibles/);
   assert.equal(f.bookings().length, 0);
 });
 
@@ -548,13 +599,13 @@ test('selection alone never reserves; explicit confirmation does; repeated reque
   const f = fixture();
   await prepareOptions(f);
   assert.equal(f.bookings().length, 0);
-  assert.match((await f.request('step', '1')).message, /Confirmas/);
+  assert.match((await f.request('step', '1')).message, /Confirmamos tu asesoría/);
   assert.equal(f.bookings().length, 0);
-  assert.match((await f.request('step', 'quizás')).message, /Confirmas/);
+  assert.match((await f.request('step', 'quizás')).message, /Confirmamos tu asesoría/);
   const booked = await f.request('step', 'SÍ');
   assert.equal(booked.done, 'si');
   assert.match(booked.message, /quedó agendada/);
-  assert.match(booked.message, /Duración: 30 minutos/);
+  assert.match(booked.message, /30 minutos/);
   assert.equal(f.bookings()[0].payload.durationMinutes, 30);
   assert.equal(f.fields.bitrix_evento_id, '12345');
   assert.equal(f.fields.bitrix_reserva_pendiente, 'no');
@@ -565,8 +616,9 @@ test('selection alone never reserves; explicit confirmation does; repeated reque
 });
 
 test('cancel and negative active-credit answer never book', async () => {
+  // Una conversación que quedó en la pregunta de crédito activo (versión anterior).
   const f = fixture({ initial: { obligacion_vivienda_activa: '' } });
-  await f.request('start');
+  legacyState(f, { step: 'active', clientCode: undefined });
   assert.equal((await f.request('step', 'NO')).done, 'si');
   assert.equal(f.bookings().length, 0);
   assert.equal(f.calls.filter(c => c.url.includes('crm.mock')).length, 0);
@@ -588,7 +640,7 @@ test('tampered and expired selections cannot book', async () => {
 
 test('una franja respondida después de treinta minutos retoma con disponibilidad nueva',async()=>{
   const f=fixture();
-  await f.request('start');
+  legacyState(f,{step:'period'});
   f.advance(2*60*60_000);
   const response=await f.request('step','Tarde');
   assert.equal(response.error,undefined);
@@ -819,11 +871,63 @@ test('handoff to an unassigned shared inbox creates the negotiation once', async
   assert.equal(f.calls.filter(c => c.url.endsWith('/prospecting-bot/lead')).length, 1);
 });
 
-test('booking asks for a period, offers two verified days, then three times in that period', async () => {
+test('al aceptar la cita ofrece de una vez hasta ocho horarios reales en 12 horas, por día y franja', async () => {
   const f = fixture();
-  const period = await f.request('start');
-  assert.match(period.message, /mañana o en la tarde/);
-  assert.equal(f.calls.filter(c => c.url.endsWith('/availability')).length, 0);
+  const offer = await f.request('start');
+  const state = JSON.parse(Buffer.from(offer.state.split('.')[0], 'base64url'));
+  assert.equal(state.step, 'choose');
+  assert.ok(state.slots.length > 0 && state.slots.length <= 8);
+  assert.ok(state.slots.every(s => Date.parse(s.startAt) <= START + 48 * 3_600_000));
+  assert.match(offer.message, /^🗓️ Estos son los horarios disponibles para tu asesoría virtual de 30 minutos \(hora de Colombia\):/);
+  assert.match(offer.message, /\nMañana, miércoles 4 de noviembre\nEn la mañana: 1\) 9:00 a\. m\. · 2\) 10:20 a\. m\.\nEn la tarde: 3\) 1:00 p\. m\. · 4\) 2:20 p\. m\./);
+  assert.match(offer.message, /\nJueves 5 de noviembre\nEn la mañana: 5\) 10:00 a\. m\. · 6\) 11:20 a\. m\.\nEn la tarde: 7\) 2:00 p\. m\. · 8\) 3:20 p\. m\./);
+  assert.match(offer.message, /«otros días»/);
+  assert.doesNotMatch(offer.message, /\b(?:0\d|1\d|2[0-3]):\d\d\b(?! [ap]\. m\.)/);
+  assert.doesNotMatch(offer.message, /mañana o en la tarde|Qué día|nombre completo|ciudad|AGENDAR/);
+  assert.equal(f.bookings().length, 0);
+});
+
+test('las opciones de una franja quedan separadas al menos cuarenta minutos y nunca pasan de ocho', async () => {
+  const availabilitySlots = [];
+  for (const day of ['04', '05']) for (let minutes = 8 * 60 + 30; minutes <= 16 * 60 + 30; minutes += 10) {
+    const startAt = `2026-11-${day}T${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00-05:00`;
+    availabilitySlots.push({ startAt, endAt: new Date(Date.parse(startAt) + 1_800_000).toISOString(), advisorId: 'advisor-one' });
+  }
+  const f = fixture({ availabilitySlots });
+  const slots = JSON.parse(Buffer.from((await f.request('start')).state.split('.')[0], 'base64url')).slots;
+  assert.equal(slots.length, 8);
+  const franja = slot => `${slot.startAt.slice(0, 10)}|${Number(new Date(slot.startAt).toLocaleString('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', hourCycle: 'h23' })) < 12}`;
+  for (const [index, slot] of slots.entries()) for (const other of slots.slice(index + 1)) {
+    if (franja(slot) === franja(other)) assert.ok(Math.abs(Date.parse(other.startAt) - Date.parse(slot.startAt)) >= 40 * 60_000);
+  }
+  assert.equal(new Set(slots.map(franja)).size, 4);
+});
+
+test('sin espacios en 48 horas ofrece los siguientes disponibles y lo dice', async () => {
+  const later = [{ startAt: '2026-11-09T14:00:00Z' }, { startAt: '2026-11-09T19:00:00Z' }]
+    .map(slot => ({ ...slot, advisorId: 'advisor-one', endAt: new Date(Date.parse(slot.startAt) + 1_800_000).toISOString() }));
+  const f = fixture({ availabilitySlots: later });
+  const offer = await f.request('start');
+  assert.match(offer.message, /No encontré espacios en las próximas 48 horas/);
+  assert.match(offer.message, /Lunes 9 de noviembre\nEn la mañana: 1\) 9:00 a\. m\.\nEn la tarde: 2\) 2:00 p\. m\./);
+  assert.equal(f.bookings().length, 0);
+});
+
+test('«otros días» muestra horarios distintos sin reservar', async () => {
+  const f = fixture();
+  const first = JSON.parse(Buffer.from((await f.request('start')).state.split('.')[0], 'base64url')).slots.map(s => s.startAt);
+  const next = await f.request('step', 'otros días');
+  assert.match(next.message, /horarios disponibles/);
+  const slots = JSON.parse(Buffer.from(next.state.split('.')[0], 'base64url')).slots;
+  assert.ok(slots.length && slots.every(s => !first.includes(s.startAt)));
+  assert.equal(f.bookings().length, 0);
+});
+
+test('booking asks for a period, offers two verified days, then three times in that period', async () => {
+  // Estado heredado de la versión anterior: franja → día → hora sigue funcionando.
+  const f = fixture();
+  legacyState(f, { step: 'period' });
+  const period = { message: '' };
   const days = await f.request('step', 'en la tarde');
   assert.match(days.message, /Qué día prefieres/);
   assert.equal(JSON.parse(Buffer.from(days.state.split('.')[0], 'base64url')).days.length, 2);
@@ -840,20 +944,37 @@ test('booking asks for a period, offers two verified days, then three times in t
 test('weekday, ordinal selection and natural confirmation reserve only the selected time', async () => {
   const f = fixture();
   await f.request('start');
-  await f.request('step', 'en la mañana');
-  await f.request('step', 'jueves por la tarde');
-  assert.match((await f.request('step', 'la primera')).message, /Confirmas/);
+  const thursday = await f.request('step', 'jueves por la tarde');
+  assert.match(thursday.message, /jueves 5 de noviembre en la tarde/);
+  assert.match((await f.request('step', 'la primera')).message, /Confirmamos tu asesoría/);
   assert.equal(f.bookings().length, 0);
   assert.match((await f.request('step', 'dale')).message, /quedó agendada/);
   assert.equal(f.bookings()[0].payload.startAt, '2026-11-05T19:00:00Z');
+});
+
+test('un día escrito a mano en la lista filtra ese día y la fecha con hora elige el horario', async () => {
+  for (const answer of ['Jueves 5', '5 de noviembre jueves', '5 jueves', 'el jueves']) {
+    const f = fixture();await f.request('start');
+    const response = await f.request('step', answer);
+    assert.match(response.message, /horarios del jueves 5 de noviembre/, answer);
+    assert.ok(stateOf(f).slots.every(s => s.startAt.startsWith('2026-11-05')), answer);
+    assert.equal(stateOf(f).misses, 0);assert.equal(f.bookings().length, 0);
+  }
+  for (const answer of ['jueves 5 a las 2 pm', 'el jueves a las 2:00 p. m.']) {
+    const f = fixture();await f.request('start');
+    const response = await f.request('step', answer);
+    assert.match(response.message, /^Elegiste el jueves 5 de noviembre a las 2:00 p\. m\./, answer);
+    assert.equal(f.bookings().length, 0);
+  }
 });
 
 test('the user can ask for another day or period without restarting the profile', async () => {
   const f = fixture();
   await prepareOptions(f);
   assert.match((await f.request('step', 'otra franja')).message, /mañana o en la tarde/);
-  const times = await f.request('step', 'en la tarde');
-  assert.match(times.message, /horarios libres/);
+  assert.match((await f.request('step', 'en la tarde')).message, /Qué día prefieres/);
+  const times = await f.request('step', 'mañana');
+  assert.match(times.message, /horarios libres/);assert.match(times.message, /1:00 p\. m\./);
   const state = JSON.parse(Buffer.from(times.state.split('.')[0], 'base64url'));
   assert.equal(state.date, '2026-11-04');
   assert.equal(state.fromTime, '12:00');
@@ -862,15 +983,36 @@ test('the user can ask for another day or period without restarting the profile'
 });
 
 test('questions and negated mentions of a time do not select or book it', async () => {
+  for (const answer of ['no quiero la primera', '¿la primera?', 'si puedo, la primera']) {
+    const f = fixture();
+    await prepareOptions(f);
+    const response = await f.request('step', answer);
+    assert.match(response.message, /No logré identificar el horario/, answer);
+    assert.equal(f.bookings().length, 0);
+    assert.match((await f.request('step', '9 am')).message, /Confirmamos tu asesoría/);
+    assert.equal(f.bookings().length, 0);
+  }
+});
+
+test('no repite la misma pregunta: al segundo horario no reconocido pasa a un asesor sin reservar', async () => {
   const f = fixture();
   await prepareOptions(f);
-  for (const answer of ['no quiero la primera', '¿la primera?', 'si puedo, la primera']) {
-    const response = await f.request('step', answer);
-    assert.match(response.message, /Cuál de los horarios/);
-  }
+  const first = await f.request('step', 'el de siempre');
+  assert.match(first.message, /No logré identificar el horario/);assert.equal(first.human, 'no');
+  const second = await f.request('step', 'el de siempre');
+  assert.equal(second.human, 'si');assert.equal(second.done, 'si');
+  assert.match(second.message, /asesor de Avanzar/);
+  assert.notEqual(first.message, second.message);
   assert.equal(f.bookings().length, 0);
-  assert.match((await f.request('step', '9 am')).message, /Confirmas/);
-  assert.equal(f.bookings().length, 0);
+});
+
+test('la confirmación ambigua tampoco se repite: al segundo intento pasa a un asesor', async () => {
+  const f = fixture();
+  await prepareOptions(f);await f.request('step', '1');
+  const first = await f.request('step', 'Si5');
+  assert.match(first.message, /¿Confirmamos tu asesoría del miércoles 4 de noviembre a las 9:00 a\. m\./);
+  const second = await f.request('step', 'mmm');
+  assert.equal(second.human, 'si');assert.equal(f.bookings().length, 0);
 });
 
 test('asking for a person during booking exits toward human attention without reserving', async () => {
@@ -967,8 +1109,17 @@ test('una jornada tras la oferta abre opciones; una negativa, dato financiero o 
   }
 });
 
-test('pedir noche explica el horario y permite continuar en la mañana sin reservar',async()=>{
+test('pedir noche en la lista explica el horario y deja las mismas opciones sin reservar',async()=>{
   const f=fixture();await f.request('start');
+  const response=await f.request('step','en la noche');
+  assert.match(response.message,/No tenemos horarios nocturnos/);assert.match(response.message,/8:30/);assert.match(response.message,/5:00/);
+  assert.match(response.message,/1\) 9:00 a\. m\./);
+  assert.equal(stateOf(f).step,'choose');assert.equal(f.bookings().length,0);
+  assert.match((await f.request('step','1')).message,/Confirmamos tu asesoría/);assert.equal(f.bookings().length,0);
+});
+
+test('pedir noche explica el horario y permite continuar en la mañana sin reservar',async()=>{
+  const f=fixture();legacyState(f,{step:'period'});
   const response=await f.request('step','en la noche');
   assert.match(response.message,/8:30/);assert.match(response.message,/5:00/);assert.match(response.message,/No tenemos horarios nocturnos/);
   assert.doesNotMatch(response.message,/no est[aá] disponible|Booking through/);
@@ -1165,7 +1316,23 @@ test('la agenda reparte las opciones entre el inicio, la mitad y el final de la 
   const f = fixture({ availabilitySlots });
   const response = await prepareOptions(f);
   const slots = JSON.parse(Buffer.from(response.state.split('.')[0], 'base64url')).slots;
+  // Huecos cada 10 minutos: se ofrecen inicios separados 40 minutos, de 8:30 a 11:50.
+  assert.deepEqual(slots.map(slot => slot.startAt), ['08:30', '09:10', '09:50', '10:30', '11:10', '11:50'].map(time => localFreeSlot(time).startAt));
+  assert.equal(f.bookings().length, 0);
+});
+
+test('legacy: la franja elegida reparte las horas entre el inicio, la mitad y el final', async () => {
+  const availabilitySlots = Array.from({ length: 21 }, (_, index) => {
+    const minutes = 8 * 60 + 30 + index * 10;
+    return localFreeSlot(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`);
+  });
+  const f = fixture({ availabilitySlots });
+  legacyState(f, { step: 'period' });
+  await f.request('step', 'en la mañana');
+  const response = await f.request('step', '1');
+  const slots = JSON.parse(Buffer.from(response.state.split('.')[0], 'base64url')).slots;
   assert.deepEqual(slots.map(slot => slot.startAt), ['08:30', '10:00', '11:30'].map(time => localFreeSlot(time).startAt));
+  assert.match(response.message, /1\. 8:30 a\. m\.\n2\. 10:00 a\. m\.\n3\. 11:30 a\. m\./);
   assert.equal(f.bookings().length, 0);
 });
 
@@ -1204,7 +1371,7 @@ test('una opción antigua de diez minutos exige horarios y confirmación nuevos'
     const current=JSON.parse(Buffer.from(refreshed.state.split('.')[0],'base64url'));
     assert.ok(current.slots.every(s=>Date.parse(s.endAt)-Date.parse(s.startAt)===1_800_000));
     await f.request('step','1');assert.equal(f.bookings().length,0);
-    assert.match((await f.request('step','sí')).message,/Duración: 30 minutos/);
+    assert.match((await f.request('step','sí')).message,/virtual por Zoom de 30 minutos/);
   }
 });
 
